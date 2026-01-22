@@ -73,8 +73,8 @@ const FrameSelectionScreen: React.FC = () => {
       setSession(updatedSession);
       setSelectedTemplate(selectedTemplate);
 
-      // Navigate to capture screen
-      setScreen('capture');
+      // Navigate to mirror selection screen
+      setScreen('mirror-selection');
     } catch (error) {
       console.error('Failed to select template:', error);
       showToast({

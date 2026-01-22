@@ -8,10 +8,11 @@ interface WebcamPreviewProps {
   onReady?: () => void;
   onError?: (error: string) => void;
   className?: string;
+  mirrored?: boolean;
 }
 
 export const WebcamPreview = forwardRef<WebcamPreviewHandle, WebcamPreviewProps>(
-  ({ onReady, onError, className = '' }, ref) => {
+  ({ onReady, onError, className = '', mirrored = true }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -101,9 +102,11 @@ export const WebcamPreview = forwardRef<WebcamPreviewHandle, WebcamPreviewProps>
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
-      // Draw video frame to canvas (mirror horizontally for selfie view)
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
+      // Draw video frame to canvas (mirror horizontally if mirrored preference)
+      if (mirrored) {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
       ctx.drawImage(video, 0, 0);
 
       // Convert to blob
@@ -114,7 +117,7 @@ export const WebcamPreview = forwardRef<WebcamPreviewHandle, WebcamPreviewProps>
           0.85 // Good quality but smaller file size
         );
       });
-    }, [isReady]);
+    }, [isReady, mirrored]);
 
     // Expose capture method to parent
     useImperativeHandle(ref, () => ({
@@ -143,7 +146,7 @@ export const WebcamPreview = forwardRef<WebcamPreviewHandle, WebcamPreviewProps>
           playsInline
           muted
           className="w-full h-full object-cover"
-          style={{ transform: 'scaleX(-1)' }} // Mirror for selfie view
+          style={{ transform: mirrored ? 'scaleX(-1)' : 'none' }}
         />
         <canvas ref={canvasRef} className="hidden" />
         {!isReady && (

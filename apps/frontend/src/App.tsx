@@ -13,6 +13,7 @@ import PaymentMethodScreen from './screens/PaymentMethodScreen';
 import CodeVerificationScreen from './screens/CodeVerificationScreen';
 import SessionNoticeScreen from './screens/SessionNoticeScreen';
 import FrameSelectionScreen from './screens/FrameSelectionScreen';
+import MirrorSelectionScreen from './screens/MirrorSelectionScreen';
 import CaptureScreen from './screens/CaptureScreen';
 import PhotoReviewScreen from './screens/PhotoReviewScreen';
 import FilterSelectionScreen from './screens/FilterSelectionScreen';
@@ -61,6 +62,8 @@ const App: React.FC = () => {
           return <SessionNoticeScreen />;
         case 'frame-selection':
           return <FrameSelectionScreen />;
+        case 'mirror-selection':
+          return <MirrorSelectionScreen />;
         case 'capture':
           return <CaptureScreen />;
         case 'photo-review':

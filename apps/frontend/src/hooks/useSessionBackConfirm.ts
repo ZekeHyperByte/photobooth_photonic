@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
-import { useUIStore } from '../stores/uiStore';
+import { useUIStore, type ScreenType } from '../stores/uiStore';
 
 /**
  * useSessionBackConfirm
@@ -12,7 +12,7 @@ import { useUIStore } from '../stores/uiStore';
  * @param targetScreen - The screen to navigate to when going back
  * @returns Object containing handleBack function and dialog state
  */
-export const useSessionBackConfirm = (targetScreen: string = 'code-entry') => {
+export const useSessionBackConfirm = (targetScreen: ScreenType = 'code-entry') => {
   const { sessionTimer, resetSession } = useSessionStore();
   const { setScreen } = useUIStore();
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);

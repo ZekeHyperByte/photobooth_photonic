@@ -6,6 +6,7 @@ export type ScreenType =
   | 'code-entry'        // Enter 4-digit booth code
   | 'session-notice'    // Session time limit notice before starting
   | 'frame-selection'   // Select frame/template before capture
+  | 'mirror-selection'  // Select camera mirror preference
   | 'capture'
   | 'photo-review'      // Review photos before filter selection
   | 'filter-selection'  // Select filter after capture

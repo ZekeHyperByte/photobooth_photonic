@@ -9,8 +9,12 @@ import { WebcamPreview, WebcamPreviewHandle } from '../components/WebcamPreview'
 
 const CaptureScreen: React.FC = () => {
   const { setScreen, showToast, retakeMode, clearRetakeMode } = useUIStore();
-  const { session } = useSessionStore();
+  const { session, mirrorPreference } = useSessionStore();
   const { addPhoto, updatePhoto, photos } = usePhotoStore();
+
+  // Debug: Log mirror preference
+  console.log('[CaptureScreen] mirrorPreference:', mirrorPreference);
+  console.log('[CaptureScreen] mirrored prop will be:', mirrorPreference !== 'non-mirrored');
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
@@ -227,6 +231,7 @@ const CaptureScreen: React.FC = () => {
                 onReady={handleWebcamReady}
                 onError={handleWebcamError}
                 className="w-full h-full"
+                mirrored={mirrorPreference !== 'non-mirrored'}
               />
 
               {/* Captured photo overlay - absolute positioned on top of webcam */}

@@ -12,12 +12,14 @@ interface SessionState {
   selectedPackage: Package | null;
   selectedTemplate: Template | null;
   sessionTimer: SessionTimer;
+  mirrorPreference: 'mirrored' | 'non-mirrored' | null;
 
   // Actions
   setSession: (session: Session) => void;
   updateSession: (updates: Partial<Session>) => void;
   setSelectedPackage: (pkg: Package | null) => void;
   setSelectedTemplate: (template: Template | null) => void;
+  setMirrorPreference: (preference: 'mirrored' | 'non-mirrored') => void;
   resetSession: () => void;
 
   // Timer actions
@@ -37,6 +39,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     timeLimit: 0,
     isActive: false,
   },
+  mirrorPreference: null,
 
   setSession: (session) => set({ session }),
 
@@ -49,11 +52,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setSelectedTemplate: (template) => set({ selectedTemplate: template }),
 
+  setMirrorPreference: (preference) => set({ mirrorPreference: preference }),
+
   resetSession: () =>
     set({
       session: null,
       selectedPackage: null,
       selectedTemplate: null,
+      mirrorPreference: null,
       sessionTimer: {
         startTime: null,
         timeLimit: 0,
