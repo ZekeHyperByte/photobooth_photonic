@@ -1,4 +1,4 @@
-# Photonic V0.1 - Photo Booth System
+# Photonic V1.1.0 - Photo Booth System
 
 Commercial photo booth system with Canon DSLR integration, QRIS payment, and multi-channel photo delivery.
 
