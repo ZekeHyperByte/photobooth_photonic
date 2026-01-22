@@ -1,0 +1,21 @@
+appId: com.photonic.booth
+productName: Photonic Kiosk
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+win:
+  target: nsis
+  icon: build/icon.ico
+linux:
+  target: AppImage
+  icon: build/icon.png
+  category: Graphics
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

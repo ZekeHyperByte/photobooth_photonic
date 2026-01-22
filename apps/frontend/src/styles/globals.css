@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply touch-manipulation select-none;
+  }
+
+  body {
+    @apply overflow-hidden m-0 p-0 font-neo;
+  }
+
+  html,
+  body,
+  #root {
+    @apply w-full h-full;
+  }
+}
+
+@layer components {
+  .neo-btn {
+    @apply rounded-none font-bold border-[3px] border-black shadow-neo
+      transition-all duration-100
+      active:translate-x-[5px] active:translate-y-[5px] active:shadow-none;
+  }
+
+  .neo-btn-sm {
+    @apply rounded-none font-bold border-[3px] border-black shadow-neo-sm
+      transition-all duration-100
+      active:translate-x-1 active:translate-y-1 active:shadow-none;
+  }
+
+  .neo-card {
+    @apply bg-white rounded-none border-[3px] border-black shadow-neo-lg;
+  }
+
+  .neo-input {
+    @apply w-full border-[3px] border-black rounded-none bg-white
+      focus:outline-none focus:ring-0 focus:shadow-neo
+      transition-shadow duration-100;
+  }
+
+  .neo-progress {
+    @apply w-full h-6 bg-white border-[3px] border-black rounded-none overflow-hidden;
+  }
+
+  .neo-progress-bar {
+    @apply h-full transition-all duration-500;
+  }
+}
+
+@layer utilities {
+  .touch-button {
+    @apply min-w-[120px] min-h-[80px] transition-transform duration-100;
+  }
+
+  .screen-container {
+    @apply w-full h-full flex flex-col items-center justify-center p-6;
+  }
+
+  .card {
+    @apply bg-white rounded-none border-[3px] border-black shadow-neo-lg p-4;
+  }
+}

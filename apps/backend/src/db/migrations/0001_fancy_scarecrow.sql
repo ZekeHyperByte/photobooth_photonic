@@ -1,0 +1,1 @@
+ALTER TABLE templates ADD `preview_path` text;

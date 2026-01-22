@@ -1,0 +1,41 @@
+{
+  "version": "5",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1768080699505,
+      "tag": "0000_yielding_terrax",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1768367282463,
+      "tag": "0001_fancy_scarecrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1768530029457,
+      "tag": "0002_rich_vance_astro",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1737500400000,
+      "tag": "0003_add_template_frame_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1737542992000,
+      "tag": "0004_add_paper_size_columns",
+      "breakpoints": true
+    }
+  ]
+}
