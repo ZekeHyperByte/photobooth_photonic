@@ -15,6 +15,8 @@ import { deliveryRoutes } from './routes/delivery';
 import { adminRoutes } from './routes/admin';
 import { codeRoutes } from './routes/codes';
 import { filterRoutes } from './routes/filters';
+import { cameraRoutes } from './routes/camera';
+import { syncRoutes } from './routes/sync';
 import path from 'path';
 import fs from 'fs';
 
@@ -89,6 +91,8 @@ export async function createApp() {
   await app.register(photoRoutes);
   await app.register(deliveryRoutes);
   await app.register(adminRoutes);
+  await app.register(cameraRoutes);
+  await app.register(syncRoutes);
 
   // Health check endpoint
   app.get('/health', async () => {

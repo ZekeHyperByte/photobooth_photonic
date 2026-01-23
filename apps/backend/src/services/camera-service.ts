@@ -6,9 +6,14 @@ import fs from 'fs';
 import { nanoid } from 'nanoid';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import os from 'os';
 
 const execAsync = promisify(exec);
 const logger = createLogger('camera-service');
+
+// Detect platform
+const isWindows = os.platform() === 'win32';
+const isLinux = os.platform() === 'linux';
 
 export class CameraService {
   private camera: any = null;
@@ -16,23 +21,40 @@ export class CameraService {
   private isInitialized = false;
   private cameraMode: 'dslr' | 'webcam' | 'mock' = 'mock';
   private webcamDevice: string = '/dev/video0';
+  private digiCamControlPath: string = 'C:\\Program Files\\digiCamControl';
 
   constructor() {
+    // Check for digiCamControl path from env
+    if (process.env.DIGICAMCONTROL_PATH) {
+      this.digiCamControlPath = process.env.DIGICAMCONTROL_PATH;
+    }
+
     // Priority: Webcam (explicit) > DSLR > Mock
     if (env.useWebcam) {
       this.cameraMode = 'webcam';
-      logger.info('Camera service running in WEBCAM MODE (using ffmpeg)');
+      logger.info('Camera service running in WEBCAM MODE');
     } else if (!env.mockCamera) {
-      try {
-        // Load gphoto2 module
-        // Note: This requires gphoto2 to be installed on the system
-        const GPhoto = require('gphoto2');
-        this.gphoto2 = new GPhoto.GPhoto2();
-        this.cameraMode = 'dslr';
-        logger.info('gphoto2 module loaded');
-      } catch (error) {
-        logger.error('Failed to load gphoto2. Running in mock mode.', error);
-        env.mockCamera = true;
+      if (isWindows) {
+        // Windows: Use digiCamControl
+        const cmdPath = path.join(this.digiCamControlPath, 'CameraControlCmd.exe');
+        if (fs.existsSync(cmdPath)) {
+          this.cameraMode = 'dslr';
+          logger.info('Camera service running in DSLR MODE (digiCamControl)');
+        } else {
+          logger.warn(`digiCamControl not found at ${cmdPath}. Running in mock mode.`);
+          env.mockCamera = true;
+        }
+      } else if (isLinux) {
+        // Linux: Use gphoto2
+        try {
+          const GPhoto = require('gphoto2');
+          this.gphoto2 = new GPhoto.GPhoto2();
+          this.cameraMode = 'dslr';
+          logger.info('Camera service running in DSLR MODE (gphoto2)');
+        } catch (error) {
+          logger.warn('gphoto2 not available. Running in mock mode.', error);
+          env.mockCamera = true;
+        }
       }
     }
 
@@ -40,6 +62,8 @@ export class CameraService {
       this.cameraMode = 'mock';
       logger.warn('Camera service running in MOCK MODE');
     }
+
+    logger.info(`Platform: ${os.platform()}, Camera mode: ${this.cameraMode}`);
   }
 
   /**
@@ -58,6 +82,39 @@ export class CameraService {
       return;
     }
 
+    if (isWindows) {
+      // Windows: Test digiCamControl connection
+      return this.initializeDigiCamControl();
+    } else {
+      // Linux: Use gphoto2
+      return this.initializeGphoto2();
+    }
+  }
+
+  /**
+   * Initialize digiCamControl (Windows)
+   */
+  private async initializeDigiCamControl(): Promise<void> {
+    try {
+      const cmdPath = path.join(this.digiCamControlPath, 'CameraControlCmd.exe');
+      const { stdout } = await execAsync(`"${cmdPath}" /list`, { timeout: 10000 });
+
+      if (stdout.toLowerCase().includes('no camera')) {
+        throw new Error('No camera detected');
+      }
+
+      this.isInitialized = true;
+      logger.info('digiCamControl initialized', { output: stdout.trim() });
+    } catch (error: any) {
+      logger.error('Failed to initialize digiCamControl', { error: error.message });
+      throw new Error('Failed to connect to camera via digiCamControl');
+    }
+  }
+
+  /**
+   * Initialize gphoto2 (Linux)
+   */
+  private initializeGphoto2(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.gphoto2.list((cameras: any[]) => {
         if (cameras.length === 0) {
@@ -68,7 +125,7 @@ export class CameraService {
         this.camera = cameras[0];
         this.isInitialized = true;
 
-        logger.info('Camera connected:', {
+        logger.info('gphoto2 camera connected:', {
           model: this.camera.model,
           port: this.camera.port,
         });
@@ -104,27 +161,92 @@ export class CameraService {
       return this.captureMockPhoto(sessionId, sequenceNumber);
     }
 
+    if (isWindows) {
+      return this.captureDigiCamControl(sessionId, sequenceNumber);
+    } else {
+      return this.captureGphoto2(sessionId, sequenceNumber);
+    }
+  }
+
+  /**
+   * Capture using digiCamControl (Windows)
+   */
+  private async captureDigiCamControl(sessionId: string, sequenceNumber: number): Promise<{
+    imagePath: string;
+    metadata: CameraMetadata;
+  }> {
+    logger.info('digiCamControl: Capturing photo...', { sessionId, sequenceNumber });
+
+    const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
+    const imagePath = path.join(env.tempPhotoPath, filename);
+
+    // Ensure temp directory exists
+    if (!fs.existsSync(env.tempPhotoPath)) {
+      fs.mkdirSync(env.tempPhotoPath, { recursive: true });
+    }
+
+    try {
+      const cmdPath = path.join(this.digiCamControlPath, 'CameraControlCmd.exe');
+
+      // Capture and download to specific path
+      const command = `"${cmdPath}" /capture /filename "${imagePath}"`;
+      logger.info('Executing capture command', { command });
+
+      await execAsync(command, { timeout: 30000 });
+
+      // Verify file was created
+      if (!fs.existsSync(imagePath)) {
+        throw new Error('Capture succeeded but image file not found');
+      }
+
+      logger.info('digiCamControl: Photo captured successfully', { imagePath });
+
+      const metadata: CameraMetadata = {
+        model: 'Canon EOS 550D',
+        iso: 'Auto',
+        shutterSpeed: 'Auto',
+        aperture: 'Auto',
+        focalLength: 'Unknown',
+        timestamp: new Date().toISOString(),
+      };
+
+      return { imagePath, metadata };
+    } catch (error: any) {
+      logger.error('digiCamControl capture failed', { error: error.message });
+      throw new Error(`Capture failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Capture using gphoto2 (Linux)
+   */
+  private captureGphoto2(sessionId: string, sequenceNumber: number): Promise<{
+    imagePath: string;
+    metadata: CameraMetadata;
+  }> {
     return new Promise((resolve, reject) => {
-      logger.info('Capturing photo...', { sessionId, sequenceNumber });
+      logger.info('gphoto2: Capturing photo...', { sessionId, sequenceNumber });
 
       this.camera.takePicture({}, (err: any, data: Buffer) => {
         if (err) {
-          logger.error('Capture failed:', err);
+          logger.error('gphoto2 capture failed:', err);
           reject(new Error(`Capture failed: ${err.message}`));
           return;
         }
 
         try {
-          // Generate filename
           const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
           const imagePath = path.join(env.tempPhotoPath, filename);
 
-          // Save image
+          // Ensure temp directory exists
+          if (!fs.existsSync(env.tempPhotoPath)) {
+            fs.mkdirSync(env.tempPhotoPath, { recursive: true });
+          }
+
           fs.writeFileSync(imagePath, data);
 
-          logger.info('Photo captured successfully:', imagePath);
+          logger.info('gphoto2: Photo captured successfully', { imagePath });
 
-          // Get camera metadata
           const metadata: CameraMetadata = {
             model: this.camera.model || 'Unknown',
             iso: 'Auto',
@@ -134,10 +256,7 @@ export class CameraService {
             timestamp: new Date().toISOString(),
           };
 
-          resolve({
-            imagePath,
-            metadata,
-          });
+          resolve({ imagePath, metadata });
         } catch (error: any) {
           logger.error('Failed to save photo:', error);
           reject(new Error(`Failed to save photo: ${error.message}`));
@@ -158,7 +277,7 @@ export class CameraService {
     // Simulate capture delay
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // Create a simple 1x1 pixel image for testing
+    // Create a simple 1x1 pixel JPEG for testing
     const mockImageData = Buffer.from([
       0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
       0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
@@ -184,7 +303,7 @@ export class CameraService {
 
     fs.writeFileSync(imagePath, mockImageData);
 
-    logger.info('Mock: Photo captured successfully:', imagePath);
+    logger.info('Mock: Photo captured successfully', { imagePath });
 
     const metadata: CameraMetadata = {
       model: 'Canon EOS Mock Camera',
@@ -195,14 +314,11 @@ export class CameraService {
       timestamp: new Date().toISOString(),
     };
 
-    return {
-      imagePath,
-      metadata,
-    };
+    return { imagePath, metadata };
   }
 
   /**
-   * Webcam capture for development testing using ffmpeg
+   * Webcam capture using ffmpeg (Linux) or Windows camera
    */
   private async captureWebcamPhoto(sessionId: string, sequenceNumber: number): Promise<{
     imagePath: string;
@@ -219,18 +335,24 @@ export class CameraService {
     }
 
     try {
-      // Use ffmpeg to capture a single frame from the webcam
-      const ffmpegCmd = `ffmpeg -f v4l2 -video_size 1280x720 -i ${this.webcamDevice} -frames:v 1 -update 1 -y "${imagePath}"`;
+      let command: string;
+
+      if (isWindows) {
+        // Windows: Use ffmpeg with dshow
+        command = `ffmpeg -f dshow -i video="USB Video Device" -frames:v 1 -y "${imagePath}"`;
+      } else {
+        // Linux: Use ffmpeg with v4l2
+        command = `ffmpeg -f v4l2 -video_size 1280x720 -i ${this.webcamDevice} -frames:v 1 -update 1 -y "${imagePath}"`;
+      }
+
       logger.info('Webcam: Running ffmpeg command');
+      await execAsync(command, { timeout: 10000 });
 
-      await execAsync(ffmpegCmd, { timeout: 10000 });
-
-      // Verify the file was created
       if (!fs.existsSync(imagePath)) {
         throw new Error('Image file was not created');
       }
 
-      logger.info('Webcam: Photo captured successfully:', imagePath);
+      logger.info('Webcam: Photo captured successfully', { imagePath });
 
       const metadata: CameraMetadata = {
         model: 'Development Webcam',
@@ -241,10 +363,7 @@ export class CameraService {
         timestamp: new Date().toISOString(),
       };
 
-      return {
-        imagePath,
-        metadata,
-      };
+      return { imagePath, metadata };
     } catch (error: any) {
       logger.error('Webcam capture failed:', error);
       throw new Error(`Webcam capture failed: ${error.message || error}`);
@@ -297,24 +416,20 @@ export class CameraService {
       };
     }
 
-    try {
-      return {
-        connected: true,
-        model: this.camera?.model || 'Unknown',
-        battery: 100, // gphoto2 doesn't always provide battery info
-        storageAvailable: true,
-        settings: {
-          iso: 'Auto',
-          shutterSpeed: 'Auto',
-          aperture: 'Auto',
-          whiteBalance: 'auto',
-          imageFormat: 'JPEG',
-        },
-      };
-    } catch (error: any) {
-      logger.error('Failed to get camera status:', error);
-      throw new Error(`Failed to get camera status: ${error.message}`);
-    }
+    // Real camera
+    return {
+      connected: true,
+      model: isWindows ? 'Canon EOS 550D (digiCamControl)' : (this.camera?.model || 'Canon DSLR'),
+      battery: 100,
+      storageAvailable: true,
+      settings: {
+        iso: 'Auto',
+        shutterSpeed: 'Auto',
+        aperture: 'Auto',
+        whiteBalance: 'auto',
+        imageFormat: 'JPEG',
+      },
+    };
   }
 
   /**
@@ -327,8 +442,7 @@ export class CameraService {
 
     logger.info('Configuring camera:', settings);
 
-    if (env.mockCamera) {
-      logger.info('Mock: Camera configured');
+    if (this.cameraMode === 'mock' || this.cameraMode === 'webcam') {
       return {
         iso: settings.iso || '200',
         shutterSpeed: settings.shutterSpeed || '1/125',
@@ -338,9 +452,8 @@ export class CameraService {
       };
     }
 
-    // Note: Actual gphoto2 configuration would go here
-    // This requires more complex interaction with gphoto2 API
-    logger.warn('Camera configuration not fully implemented yet');
+    // TODO: Implement actual camera configuration for digiCamControl/gphoto2
+    logger.warn('Camera configuration not fully implemented');
 
     return {
       iso: 'Auto',
@@ -356,7 +469,6 @@ export class CameraService {
    */
   async disconnect(): Promise<void> {
     if (this.camera) {
-      // gphoto2 auto-disconnects
       this.camera = null;
     }
     this.isInitialized = false;

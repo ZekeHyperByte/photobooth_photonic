@@ -403,5 +403,127 @@ export async function deliveryRoutes(fastify: FastifyInstance) {
     }
   );
 
+  /**
+   * GET /api/delivery/print/printers
+   * List available printers
+   */
+  fastify.get(
+    `${ENDPOINTS.DELIVERY_PRINT}/printers`,
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        logger.info('Listing available printers');
+
+        const printers = await printService.listPrinters();
+        const status = printService.getStatus();
+
+        return reply.code(HTTP_STATUS.OK).send({
+          success: true,
+          data: {
+            printers,
+            defaultPrinter: status.defaultPrinter,
+            serviceRunning: status.isRunning,
+          },
+        });
+      } catch (error) {
+        logger.error('Failed to list printers', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          message: 'Failed to list printers',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/delivery/print/printers/default
+   * Set default printer
+   */
+  fastify.post(
+    `${ENDPOINTS.DELIVERY_PRINT}/printers/default`,
+    async (
+      request: FastifyRequest<{ Body: { printerName: string } }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const { printerName } = request.body;
+
+        logger.info('Setting default printer', { printerName });
+
+        printService.setDefaultPrinter(printerName);
+
+        return reply.code(HTTP_STATUS.OK).send({
+          success: true,
+          message: `Default printer set to: ${printerName}`,
+          data: {
+            defaultPrinter: printerName,
+          },
+        });
+      } catch (error) {
+        logger.error('Failed to set default printer', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          message: 'Failed to set default printer',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/delivery/print/test
+   * Print a test page
+   */
+  fastify.post(
+    `${ENDPOINTS.DELIVERY_PRINT}/test`,
+    async (
+      request: FastifyRequest<{
+        Body: { filePath?: string; printer?: string; paperSize?: string };
+      }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const { filePath, printer, paperSize } = request.body || {};
+
+        logger.info('Test print requested', { filePath, printer, paperSize });
+
+        // Use a default test file if none provided
+        const testFile = filePath || '/usr/share/cups/data/testprint';
+
+        const result = await printService.printDirect(testFile, {
+          printer,
+          copies: 1,
+          paperSize: paperSize || 'A4',
+        });
+
+        if (result.success) {
+          return reply.code(HTTP_STATUS.OK).send({
+            success: true,
+            message: 'Test print sent',
+            data: { cupsResponse: result.message },
+          });
+        } else {
+          return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+            success: false,
+            message: result.message,
+          });
+        }
+      } catch (error) {
+        logger.error('Test print failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          message: error instanceof Error ? error.message : 'Test print failed',
+        });
+      }
+    }
+  );
+
   logger.info('Delivery routes registered');
 }

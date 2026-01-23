@@ -1,15 +1,14 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { nanoid } from 'nanoid';
 import path from 'path';
-import axios from 'axios';
 import fs from 'fs/promises';
 import { db } from '../db';
 import { photos, sessions, filters } from '../db/schema';
 import { eq } from 'drizzle-orm';
-import { ENDPOINTS, HTTP_STATUS, MESSAGES } from '@photonic/config';
+import { HTTP_STATUS, MESSAGES, ENDPOINTS } from '@photonic/config';
 import { logger } from '@photonic/utils';
 import { imageProcessor } from '../services/image-processor';
-import { env } from '../config/env';
+import { getCameraService } from '../services/camera-service';
 import type {
   CapturePhotoRequest,
   ProcessPhotoRequest,
@@ -50,39 +49,30 @@ export async function photoRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // Call bridge service to capture photo
-        const bridgeResponse = await axios.post(
-          `${env.bridgeServiceUrl}${ENDPOINTS.CAMERA_CAPTURE}`,
-          { sessionId: body.sessionId }
-        );
+        // Use local camera service to capture photo
+        const cameraService = getCameraService();
 
-        if (!bridgeResponse.data.success) {
-          throw new Error('Failed to capture photo from camera');
+        // Initialize camera if not already done
+        if (!cameraService.isConnected()) {
+          await cameraService.initialize();
         }
 
-        const tempPhotoPath = bridgeResponse.data.data.filePath;
+        // Calculate sequence number based on existing photos
+        const existingPhotos = await db.query.photos.findMany({
+          where: eq(photos.sessionId, body.sessionId),
+        });
+        const sequenceNumber = existingPhotos.filter((p) => p.sequenceNumber <= 3).length + 1;
+
+        // Capture photo using local camera service
+        const captureResult = await cameraService.capturePhoto(body.sessionId, sequenceNumber);
 
         // Generate photo ID and paths
         const photoId = nanoid();
         const originalFilename = `photo-${photoId}-original.jpg`;
         const originalPath = path.join(photosDir, originalFilename);
 
-        // Copy photo from bridge temp directory to our photos directory
-        // In production, this might be on the same machine or network share
-        // For now, we'll fetch it via HTTP if bridge serves it
-        try {
-          const photoResponse = await axios.get(
-            `${env.bridgeServiceUrl}/temp/${path.basename(tempPhotoPath)}`,
-            { responseType: 'arraybuffer' }
-          );
-          await fs.writeFile(originalPath, photoResponse.data);
-        } catch (error) {
-          logger.warn('Failed to fetch via HTTP, trying direct file copy', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Fallback: try direct file copy if on same machine
-          await fs.copyFile(tempPhotoPath, originalPath);
-        }
+        // Copy photo from temp directory to photos directory
+        await fs.copyFile(captureResult.imagePath, originalPath);
 
         // Create photo record
         const newPhoto = {

@@ -5,11 +5,40 @@ import { ENV_KEYS } from '@photonic/config';
 // Load environment variables
 dotenv.config();
 
-export const env = {
+export const env: {
+  nodeEnv: string;
+  port: number;
+  databasePath: string;
+  tempPhotoPath: string;
+  mockCamera: boolean;
+  useWebcam: boolean;
+  midtrans: {
+    serverKey: string;
+    clientKey: string;
+    environment: 'sandbox' | 'production';
+  };
+  whatsapp: {
+    provider: 'fonnte' | 'wablas';
+    apiKey: string;
+  };
+  sync: {
+    boothId: string;
+    centralServerUrl: string;
+    centralServerApiKey: string;
+    syncIntervalMs: number;
+  };
+  isDevelopment: boolean;
+  isProduction: boolean;
+  devMode: boolean;
+} = {
   nodeEnv: process.env[ENV_KEYS.NODE_ENV] || 'development',
   port: parseInt(process.env[ENV_KEYS.BACKEND_PORT] || '4000', 10),
   databasePath: process.env[ENV_KEYS.DATABASE_PATH] || './data/photobooth.db',
-  bridgeServiceUrl: process.env[ENV_KEYS.BRIDGE_SERVICE_URL] || 'http://localhost:5000',
+
+  // Camera settings (merged from bridge)
+  tempPhotoPath: process.env[ENV_KEYS.TEMP_PHOTO_PATH] || './temp',
+  mockCamera: process.env[ENV_KEYS.MOCK_CAMERA] === 'true',
+  useWebcam: process.env[ENV_KEYS.USE_WEBCAM] === 'true',
 
   midtrans: {
     serverKey: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY] || '',
@@ -20,6 +49,14 @@ export const env = {
   whatsapp: {
     provider: (process.env[ENV_KEYS.WHATSAPP_PROVIDER] || 'fonnte') as 'fonnte' | 'wablas',
     apiKey: process.env[ENV_KEYS.WHATSAPP_API_KEY] || '',
+  },
+
+  // Sync settings for central analytics
+  sync: {
+    boothId: process.env.BOOTH_ID || 'booth-001',
+    centralServerUrl: process.env.CENTRAL_SERVER_URL || '',
+    centralServerApiKey: process.env.CENTRAL_SERVER_API_KEY || '',
+    syncIntervalMs: parseInt(process.env.SYNC_INTERVAL_MS || '3600000', 10), // 1 hour default
   },
 
   isDevelopment: process.env[ENV_KEYS.NODE_ENV] === 'development',

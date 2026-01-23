@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+.neo-card {
+  @apply bg-white border-4 border-black shadow-neo p-6;
+}
+
+.neo-btn {
+  @apply bg-neo-yellow border-4 border-black shadow-neo px-6 py-3 font-bold;
+  @apply hover:shadow-neo-lg hover:-translate-x-0.5 hover:-translate-y-0.5;
+  @apply active:shadow-neo-sm active:translate-x-0.5 active:translate-y-0.5;
+  @apply transition-all duration-100;
+}
+
+.neo-btn-secondary {
+  @apply bg-neo-cyan border-4 border-black shadow-neo px-6 py-3 font-bold;
+  @apply hover:shadow-neo-lg hover:-translate-x-0.5 hover:-translate-y-0.5;
+  @apply active:shadow-neo-sm active:translate-x-0.5 active:translate-y-0.5;
+  @apply transition-all duration-100;
+}

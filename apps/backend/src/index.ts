@@ -2,6 +2,9 @@ import { createApp } from './app';
 import { initDatabase, closeDatabase } from './db';
 import { env, validateEnv } from './config/env';
 import { createLogger } from '@photonic/utils';
+import { getSyncService } from './services/sync-service';
+import { getCameraService } from './services/camera-service';
+import { printService } from './services/print-service';
 import fs from 'fs';
 import path from 'path';
 
@@ -15,7 +18,7 @@ async function start() {
     validateEnv();
 
     // Create data directories
-    const dirs = ['data', 'data/photos', 'data/templates', 'data/processed', 'data/backups', 'logs'];
+    const dirs = ['data', 'data/photos', 'data/templates', 'data/processed', 'data/backups', 'logs', 'temp'];
     dirs.forEach((dir) => {
       const dirPath = path.join(process.cwd(), dir);
       if (!fs.existsSync(dirPath)) {
@@ -41,13 +44,41 @@ async function start() {
     logger.info(`Server listening on http://localhost:${env.port}`);
     logger.info(`Environment: ${env.nodeEnv}`);
     logger.info(`Database: ${env.databasePath}`);
-    logger.info(`Bridge Service: ${env.bridgeServiceUrl}`);
+
+    // Initialize camera service
+    const cameraService = getCameraService();
+    try {
+      await cameraService.initialize();
+      logger.info('Camera service initialized');
+    } catch (error) {
+      logger.warn('Camera service initialization failed, will retry on first capture');
+    }
+
+    // Start sync service (for central analytics)
+    if (env.sync.centralServerUrl) {
+      const syncService = getSyncService();
+      syncService.start();
+      logger.info(`Sync service started, booth ID: ${env.sync.boothId}`);
+    }
+
+    // Start print service
+    await printService.start();
+    logger.info('Print service started');
 
     // Graceful shutdown
     const gracefulShutdown = async (signal: string) => {
       logger.info(`Received ${signal}, starting graceful shutdown...`);
 
       try {
+        // Stop sync service
+        const syncService = getSyncService();
+        syncService.stop();
+        logger.info('Sync service stopped');
+
+        // Stop print service
+        printService.stop();
+        logger.info('Print service stopped');
+
         await app.close();
         logger.info('Fastify app closed');
 

@@ -1,0 +1,8 @@
+{
+  "framework": "nextjs",
+  "regions": ["sin1"],
+  "env": {
+    "POSTGRES_URL": "@postgres_url",
+    "API_KEY": "@api_key"
+  }
+}

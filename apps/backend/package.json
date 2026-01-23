@@ -34,6 +34,9 @@
     "nanoid": "^3.3.7",
     "sharp": "^0.33.5"
   },
+  "optionalDependencies": {
+    "gphoto2": "^0.2.4"
+  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
     "@types/jsonwebtoken": "^9.0.5",
