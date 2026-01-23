@@ -24,33 +24,53 @@ photonic-v0.1/
 │   └── utils/        # Shared utilities
 ├── apps/
 │   ├── frontend/     # Electron + React kiosk app
-│   ├── backend/      # Fastify API + SQLite
-│   └── bridge/       # DSLR camera service (gphoto2)
+│   └── backend/      # Fastify API + SQLite + Camera Service
 ```
 
 ### Tech Stack
 - **Frontend**: Electron + React + Vite + TailwindCSS + Zustand
-- **Backend**: Fastify + SQLite + Drizzle ORM + Sharp
-- **Bridge**: Express + node-gphoto2
+- **Backend**: Fastify + SQLite + Drizzle ORM + Sharp + Camera Service
+- **Camera**: gphoto2 (Linux) / digiCamControl (Windows)
 - **Payment**: Midtrans SDK (QRIS)
 - **WhatsApp**: Fonnte/Wablas API
 
 ### Services
-1. **Backend API (Port 4000)** - Main API server
-2. **Bridge Service (Port 5000)** - Camera control
-3. **Frontend (Electron)** - Kiosk interface
+1. **Backend API (Port 4000)** - Main API server with integrated camera control
+2. **Frontend (Electron)** - Kiosk interface
 
 ## Prerequisites
 
 - Node.js 18+ LTS
 - pnpm 8+
-- Windows OS (for production deployment)
-- Canon EOS DSLR camera
-- gphoto2 (for camera control)
+- Canon EOS DSLR camera (tested with EOS 550D)
+
+### Platform-Specific Requirements
+
+**Windows (Recommended for Production):**
+- Windows 10/11
+- digiCamControl (https://digicamcontrol.com/)
+- Visual Studio Build Tools (for native dependencies)
+
+**Linux (Development/Alternative):**
+- Ubuntu 20.04+ or similar
+- gphoto2 and libgphoto2-dev
 
 ## Getting Started
 
-### Installation
+### Windows Production Setup
+
+**For complete Windows kiosk deployment**, see the comprehensive guide:
+- **[WINDOWS-SETUP-COMPLETE.md](./WINDOWS-SETUP-COMPLETE.md)** - Full step-by-step setup for production deployment
+
+This guide covers:
+- Prerequisites and installation
+- Hardware setup (Canon camera, printer)
+- Windows Service configuration
+- Payment gateway setup
+- WhatsApp delivery setup
+- Complete troubleshooting
+
+### Quick Setup (Development)
 
 ```bash
 # Install dependencies
@@ -73,18 +93,14 @@ pnpm db:seed
 
 ### Development
 
-Run all services in separate terminals:
+Run services in separate terminals:
 
 ```bash
-# Terminal 1: Backend API (port 4000)
+# Terminal 1: Backend API (port 4000) with camera service
 cd apps/backend
 pnpm dev
 
-# Terminal 2: Bridge Service (port 5000)
-cd apps/bridge
-pnpm dev
-
-# Terminal 3: Frontend Electron
+# Terminal 2: Frontend Electron
 cd apps/frontend
 pnpm dev
 ```
@@ -98,25 +114,28 @@ Create `.env` files in each app directory:
 NODE_ENV=development
 PORT=4000
 DATABASE_PATH=./data/photobooth.db
-BRIDGE_SERVICE_URL=http://localhost:5000
+
+# Camera Settings
+TEMP_PHOTO_PATH=./temp
+MOCK_CAMERA=false
+USE_WEBCAM=false
+
+# Windows Only: Custom digiCamControl path (if not using default)
+# DIGICAMCONTROL_PATH=C:\Program Files\digiCamControl
+
+# Payment Gateway
 MIDTRANS_SERVER_KEY=your_server_key
 MIDTRANS_CLIENT_KEY=your_client_key
 MIDTRANS_ENVIRONMENT=sandbox
+
+# WhatsApp Delivery
 WHATSAPP_PROVIDER=fonnte
 WHATSAPP_API_KEY=your_api_key
-```
-
-**apps/bridge/.env**
-```
-NODE_ENV=development
-PORT=5000
-TEMP_PHOTO_PATH=./temp
 ```
 
 **apps/frontend/.env**
 ```
 VITE_API_URL=http://localhost:4000
-VITE_BRIDGE_URL=http://localhost:5000
 ```
 
 ## Customer Flow

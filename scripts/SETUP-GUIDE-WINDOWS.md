@@ -1,5 +1,23 @@
 # Photonic Photobooth Setup Guide (Windows)
 
+> **📖 New Comprehensive Guide Available!**
+> For a complete, detailed Windows setup guide with production deployment instructions, see:
+> **[WINDOWS-SETUP-COMPLETE.md](../WINDOWS-SETUP-COMPLETE.md)** in the project root.
+>
+> This file contains quick reference instructions. The comprehensive guide includes:
+> - Detailed hardware setup
+> - Complete environment configuration
+> - Payment gateway and WhatsApp setup
+> - Extensive troubleshooting
+> - Maintenance and backup procedures
+
+> **ℹ️ Architecture Note:**
+> Camera integration is built directly into the backend service.
+> There is **no separate bridge service** needed. The backend automatically detects
+> your platform and uses digiCamControl on Windows or gphoto2 on Linux.
+
+---
+
 ## Prerequisites
 
 - Windows 10/11
@@ -251,18 +269,55 @@ New-NetFirewallRule -DisplayName "RustDesk UDP" -Direction Inbound -LocalPort 21
 
 ## Troubleshooting
 
+### gphoto2 Install Warning (Expected on Windows)
+
+During `pnpm install`, you may see warnings about gphoto2 failing to compile.
+**This is expected and safe to ignore on Windows.**
+
+The system automatically uses digiCamControl on Windows instead of gphoto2.
+The gphoto2 package is marked as an optional dependency and is only used on Linux.
+
 ### Camera Not Detected
 
 1. Check USB connection
 2. Ensure camera is ON and in Manual mode
 3. Close any other camera software (Canon Utility, etc.)
 4. Try different USB port
-5. Reinstall digiCamControl
+5. Verify digiCamControl is installed correctly
+6. Check camera battery or power adapter
 
 ```powershell
 # Check if camera is recognized
 & "C:\Program Files\digiCamControl\CameraControlCmd.exe" /list
 ```
+
+### digiCamControl Not Found
+
+If backend logs show "digiCamControl not found" or "Falling back to mock camera":
+
+1. **Verify Installation:**
+   ```powershell
+   Test-Path "C:\Program Files\digiCamControl\CameraControlCmd.exe"
+   ```
+
+2. **Check Custom Path:**
+   If you installed digiCamControl to a custom location, add to `apps/backend/.env`:
+   ```env
+   DIGICAMCONTROL_PATH=C:\Your\Custom\Path\digiCamControl
+   ```
+
+3. **Reinstall digiCamControl:**
+   Download from https://digicamcontrol.com/ and run the installer
+
+### Camera Locked by Another Application
+
+If camera is detected but capture fails:
+
+1. Close Canon EOS Utility (if installed)
+2. Close digiCamControl desktop application
+3. Check Task Manager for camera-related processes
+4. Disconnect and reconnect camera USB cable
+5. Restart the Photonic backend service
 
 ### Printer Not Working
 

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Create axios instances for backend and bridge services
+// Create axios instance for backend API
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000',
   timeout: 30000,
@@ -9,6 +9,10 @@ export const apiClient = axios.create({
   },
 });
 
+// DEPRECATED: Bridge service no longer exists
+// Camera integration is now built into the backend service
+// Keeping this commented for reference in case of legacy code dependencies
+/*
 export const bridgeClient = axios.create({
   baseURL: import.meta.env.VITE_BRIDGE_URL || 'http://localhost:5000',
   timeout: 60000,
@@ -16,6 +20,7 @@ export const bridgeClient = axios.create({
     'Content-Type': 'application/json',
   },
 });
+*/
 
 // Response interceptor for error handling
 apiClient.interceptors.response.use(
@@ -26,6 +31,8 @@ apiClient.interceptors.response.use(
   }
 );
 
+// DEPRECATED: Bridge client interceptor (no longer needed)
+/*
 bridgeClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -33,3 +40,4 @@ bridgeClient.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+*/

@@ -41,7 +41,11 @@ export class CameraService {
           this.cameraMode = 'dslr';
           logger.info('Camera service running in DSLR MODE (digiCamControl)');
         } else {
-          logger.warn(`digiCamControl not found at ${cmdPath}. Running in mock mode.`);
+          logger.warn(
+            `digiCamControl not found at ${cmdPath}. Running in mock mode.\n` +
+            `Please install digiCamControl from https://digicamcontrol.com/\n` +
+            `If installed to a custom location, set DIGICAMCONTROL_PATH in .env file`
+          );
           env.mockCamera = true;
         }
       } else if (isLinux) {
@@ -100,14 +104,30 @@ export class CameraService {
       const { stdout } = await execAsync(`"${cmdPath}" /list`, { timeout: 10000 });
 
       if (stdout.toLowerCase().includes('no camera')) {
-        throw new Error('No camera detected');
+        throw new Error(
+          'Canon 550D not detected. Please check:\n' +
+          '  1. Camera is powered ON\n' +
+          '  2. USB cable is connected properly\n' +
+          '  3. Camera mode is set to Manual (M)\n' +
+          '  4. No other camera software is running (Canon EOS Utility, etc.)\n' +
+          '  5. Camera auto-off is disabled in camera menu'
+        );
       }
 
       this.isInitialized = true;
       logger.info('digiCamControl initialized', { output: stdout.trim() });
     } catch (error: any) {
+      if (error.message.includes('Canon 550D not detected')) {
+        logger.error('Camera not detected by digiCamControl');
+        throw error;
+      }
+
       logger.error('Failed to initialize digiCamControl', { error: error.message });
-      throw new Error('Failed to connect to camera via digiCamControl');
+      throw new Error(
+        `Failed to connect to camera via digiCamControl.\n` +
+        `Error: ${error.message}\n` +
+        `Please ensure digiCamControl is installed at: ${this.digiCamControlPath}`
+      );
     }
   }
 
@@ -213,7 +233,25 @@ export class CameraService {
       return { imagePath, metadata };
     } catch (error: any) {
       logger.error('digiCamControl capture failed', { error: error.message });
-      throw new Error(`Capture failed: ${error.message}`);
+
+      let errorMsg = 'Camera capture failed.\n';
+
+      if (error.message.includes('timeout')) {
+        errorMsg += 'Camera did not respond in time. Please check:\n' +
+          '  - Camera is still powered ON\n' +
+          '  - USB connection is stable\n' +
+          '  - Camera is not in sleep mode';
+      } else if (error.message.includes('image file not found')) {
+        errorMsg += 'Photo was taken but file was not saved. Please check:\n' +
+          '  - Disk space is available\n' +
+          '  - Temp folder permissions are correct\n' +
+          '  - Camera memory card is not full';
+      } else {
+        errorMsg += `Error: ${error.message}\n` +
+          'Please ensure camera is connected and in Manual mode';
+      }
+
+      throw new Error(errorMsg);
     }
   }
 
