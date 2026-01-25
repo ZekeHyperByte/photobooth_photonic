@@ -3,13 +3,30 @@ import { CameraMetadata, CameraSettings, CameraStatusResponse } from '@photonic/
 import { env } from '../config/env';
 import path from 'path';
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import { nanoid } from 'nanoid';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
+import { DigiCamControlClient } from './digicam-control-client';
 
 const execAsync = promisify(exec);
 const logger = createLogger('camera-service');
+
+// Directory initialization cache to avoid repeated mkdir calls
+const initializedDirs = new Set<string>();
+
+/**
+ * Ensure directory exists (cached async version)
+ * Only calls mkdir once per directory path during app lifetime
+ */
+async function ensureDir(dirPath: string): Promise<void> {
+  if (initializedDirs.has(dirPath)) {
+    return;
+  }
+  await fsPromises.mkdir(dirPath, { recursive: true });
+  initializedDirs.add(dirPath);
+}
 
 // Detect platform
 const isWindows = os.platform() === 'win32';
@@ -18,8 +35,9 @@ const isLinux = os.platform() === 'linux';
 export class CameraService {
   private camera: any = null;
   private gphoto2: any = null;
+  private digiCamControlClient: DigiCamControlClient | null = null;
   private isInitialized = false;
-  private cameraMode: 'dslr' | 'webcam' | 'mock' = 'mock';
+  private cameraMode: 'dslr-cli' | 'dslr-webserver' | 'webcam' | 'mock' = 'mock';
   private webcamDevice: string = '/dev/video0';
   private digiCamControlPath: string = 'C:\\Program Files\\digiCamControl';
 
@@ -29,31 +47,37 @@ export class CameraService {
       this.digiCamControlPath = process.env.DIGICAMCONTROL_PATH;
     }
 
-    // Priority: Webcam (explicit) > DSLR > Mock
+    // Priority: Webcam (explicit) > DSLR Webserver > DSLR CLI > Mock
     if (env.useWebcam) {
       this.cameraMode = 'webcam';
       logger.info('Camera service running in WEBCAM MODE');
     } else if (!env.mockCamera) {
       if (isWindows) {
-        // Windows: Use digiCamControl
-        const cmdPath = path.join(this.digiCamControlPath, 'CameraControlCmd.exe');
-        if (fs.existsSync(cmdPath)) {
-          this.cameraMode = 'dslr';
-          logger.info('Camera service running in DSLR MODE (digiCamControl)');
+        // Windows: Check for webserver mode first, then CLI mode
+        if (env.digiCamControl.webserverEnabled) {
+          this.cameraMode = 'dslr-webserver';
+          this.digiCamControlClient = new DigiCamControlClient();
+          logger.info('Camera service running in DSLR WEBSERVER MODE (digiCamControl)');
         } else {
-          logger.warn(
-            `digiCamControl not found at ${cmdPath}. Running in mock mode.\n` +
-            `Please install digiCamControl from https://digicamcontrol.com/\n` +
-            `If installed to a custom location, set DIGICAMCONTROL_PATH in .env file`
-          );
-          env.mockCamera = true;
+          const cmdPath = path.join(this.digiCamControlPath, 'CameraControlCmd.exe');
+          if (fs.existsSync(cmdPath)) {
+            this.cameraMode = 'dslr-cli';
+            logger.info('Camera service running in DSLR CLI MODE (digiCamControl)');
+          } else {
+            logger.warn(
+              `digiCamControl not found at ${cmdPath}. Running in mock mode.\n` +
+              `Please install digiCamControl from https://digicamcontrol.com/\n` +
+              `If installed to a custom location, set DIGICAMCONTROL_PATH in .env file`
+            );
+            env.mockCamera = true;
+          }
         }
       } else if (isLinux) {
         // Linux: Use gphoto2
         try {
           const GPhoto = require('gphoto2');
           this.gphoto2 = new GPhoto.GPhoto2();
-          this.cameraMode = 'dslr';
+          this.cameraMode = 'dslr-cli';
           logger.info('Camera service running in DSLR MODE (gphoto2)');
         } catch (error) {
           logger.warn('gphoto2 not available. Running in mock mode.', error);
@@ -86,8 +110,12 @@ export class CameraService {
       return;
     }
 
+    if (this.cameraMode === 'dslr-webserver') {
+      return this.initializeDigiCamControlWebserver();
+    }
+
     if (isWindows) {
-      // Windows: Test digiCamControl connection
+      // Windows: Test digiCamControl CLI connection
       return this.initializeDigiCamControl();
     } else {
       // Linux: Use gphoto2
@@ -127,6 +155,46 @@ export class CameraService {
         `Failed to connect to camera via digiCamControl.\n` +
         `Error: ${error.message}\n` +
         `Please ensure digiCamControl is installed at: ${this.digiCamControlPath}`
+      );
+    }
+  }
+
+  /**
+   * Initialize digiCamControl webserver (Windows)
+   */
+  private async initializeDigiCamControlWebserver(): Promise<void> {
+    if (!this.digiCamControlClient) {
+      throw new Error('DigiCamControl client not initialized');
+    }
+
+    try {
+      const isAlive = await this.digiCamControlClient.ping();
+      if (!isAlive) {
+        throw new Error('DigiCamControl webserver is not responding');
+      }
+
+      // Set session folder to temp photo path
+      const absoluteTempPath = path.resolve(env.tempPhotoPath);
+      await this.digiCamControlClient.setSessionFolder(absoluteTempPath);
+
+      // Ensure temp directory exists (async)
+      await ensureDir(env.tempPhotoPath);
+
+      this.isInitialized = true;
+      logger.info('digiCamControl webserver initialized', {
+        host: env.digiCamControl.host,
+        port: env.digiCamControl.port,
+        sessionFolder: absoluteTempPath,
+      });
+    } catch (error: any) {
+      logger.error('Failed to initialize digiCamControl webserver', { error: error.message });
+      throw new Error(
+        `Failed to connect to DigiCamControl webserver.\n` +
+        `Error: ${error.message}\n` +
+        `Please ensure:\n` +
+        `  1. DigiCamControl webserver is running on ${env.digiCamControl.host}:${env.digiCamControl.port}\n` +
+        `  2. Camera is connected and recognized by DigiCamControl\n` +
+        `  3. DIGICAMCONTROL_WEBSERVER_ENABLED=true in .env file`
       );
     }
   }
@@ -181,6 +249,10 @@ export class CameraService {
       return this.captureMockPhoto(sessionId, sequenceNumber);
     }
 
+    if (this.cameraMode === 'dslr-webserver') {
+      return this.captureDigiCamControlWebserver(sessionId, sequenceNumber);
+    }
+
     if (isWindows) {
       return this.captureDigiCamControl(sessionId, sequenceNumber);
     } else {
@@ -200,10 +272,8 @@ export class CameraService {
     const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
     const imagePath = path.join(env.tempPhotoPath, filename);
 
-    // Ensure temp directory exists
-    if (!fs.existsSync(env.tempPhotoPath)) {
-      fs.mkdirSync(env.tempPhotoPath, { recursive: true });
-    }
+    // Ensure temp directory exists (async with caching)
+    await ensureDir(env.tempPhotoPath);
 
     try {
       const cmdPath = path.join(this.digiCamControlPath, 'CameraControlCmd.exe');
@@ -256,6 +326,118 @@ export class CameraService {
   }
 
   /**
+   * Capture using digiCamControl webserver (Windows) with polling
+   */
+  private async captureDigiCamControlWebserver(sessionId: string, sequenceNumber: number): Promise<{
+    imagePath: string;
+    metadata: CameraMetadata;
+  }> {
+    if (!this.digiCamControlClient) {
+      throw new Error('DigiCamControl client not initialized');
+    }
+
+    logger.info('digiCamControl webserver: Capturing photo...', { sessionId, sequenceNumber });
+
+    const filenameBase = `${sessionId}_${sequenceNumber}_${nanoid()}`;
+    const imagePath = path.join(env.tempPhotoPath, `${filenameBase}.jpg`);
+
+    // Ensure temp directory exists (async with caching)
+    await ensureDir(env.tempPhotoPath);
+
+    try {
+      // Set filename template for this capture
+      await this.digiCamControlClient.setFilenameTemplate(filenameBase);
+
+      // Record capture start time
+      const captureStartTime = Date.now();
+
+      // Trigger capture
+      logger.info('Triggering capture via webserver');
+      await this.digiCamControlClient.capture();
+
+      // Poll for image availability
+      logger.info('Polling for image availability');
+      const pollInterval = env.digiCamControl.pollIntervalMs;
+      const timeout = env.digiCamControl.timeoutMs;
+      const maxAttempts = Math.floor(timeout / pollInterval);
+
+      let imageAvailable = false;
+      let attempts = 0;
+
+      while (!imageAvailable && attempts < maxAttempts) {
+        attempts++;
+
+        // Check if image is available
+        const available = await this.digiCamControlClient.checkImageAvailable(filenameBase);
+
+        if (available) {
+          imageAvailable = true;
+          logger.info('Image is available for download', { attempts, elapsed: Date.now() - captureStartTime });
+          break;
+        }
+
+        // Wait before next poll
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+        if (attempts % 10 === 0) {
+          logger.info('Still waiting for image...', { attempts, elapsed: Date.now() - captureStartTime });
+        }
+      }
+
+      if (!imageAvailable) {
+        throw new Error(
+          `Capture timeout after ${timeout}ms. Camera did not save image in time.\n` +
+          'Please check:\n' +
+          '  - Camera is powered ON and responding\n' +
+          '  - USB connection is stable\n' +
+          '  - Camera memory card is not full\n' +
+          '  - Autofocus is working (may need more time in low light)'
+        );
+      }
+
+      // Download image
+      logger.info('Downloading image from webserver');
+      const imageBuffer = await this.digiCamControlClient.downloadImage(filenameBase);
+
+      // Save to local temp folder (async)
+      await fsPromises.writeFile(imagePath, imageBuffer);
+
+      logger.info('digiCamControl webserver: Photo captured successfully', {
+        imagePath,
+        elapsed: Date.now() - captureStartTime,
+      });
+
+      const metadata: CameraMetadata = {
+        model: 'Canon EOS 550D (webserver)',
+        iso: 'Auto',
+        shutterSpeed: 'Auto',
+        aperture: 'Auto',
+        focalLength: 'Unknown',
+        timestamp: new Date().toISOString(),
+      };
+
+      return { imagePath, metadata };
+    } catch (error: any) {
+      logger.error('digiCamControl webserver capture failed', { error: error.message });
+
+      let errorMsg = 'Camera capture failed via webserver.\n';
+
+      if (error.message.includes('timeout') || error.message.includes('Capture timeout')) {
+        errorMsg = error.message;
+      } else if (error.message.includes('download')) {
+        errorMsg += 'Image was captured but download failed. Please check:\n' +
+          '  - Disk space is available\n' +
+          '  - Network connection to webserver is stable';
+      } else {
+        errorMsg += `Error: ${error.message}\n` +
+          'Please ensure DigiCamControl webserver is running and camera is connected';
+      }
+
+      throw new Error(errorMsg);
+    }
+  }
+
+  /**
    * Capture using gphoto2 (Linux)
    */
   private captureGphoto2(sessionId: string, sequenceNumber: number): Promise<{
@@ -276,9 +458,10 @@ export class CameraService {
           const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
           const imagePath = path.join(env.tempPhotoPath, filename);
 
-          // Ensure temp directory exists
+          // Ensure temp directory exists (sync for gphoto2 callback - will be cached after first call)
           if (!fs.existsSync(env.tempPhotoPath)) {
             fs.mkdirSync(env.tempPhotoPath, { recursive: true });
+            initializedDirs.add(env.tempPhotoPath);
           }
 
           fs.writeFileSync(imagePath, data);
@@ -334,12 +517,10 @@ export class CameraService {
     const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
     const imagePath = path.join(env.tempPhotoPath, filename);
 
-    // Ensure temp directory exists
-    if (!fs.existsSync(env.tempPhotoPath)) {
-      fs.mkdirSync(env.tempPhotoPath, { recursive: true });
-    }
+    // Ensure temp directory exists (async with caching)
+    await ensureDir(env.tempPhotoPath);
 
-    fs.writeFileSync(imagePath, mockImageData);
+    await fsPromises.writeFile(imagePath, mockImageData);
 
     logger.info('Mock: Photo captured successfully', { imagePath });
 
@@ -367,10 +548,8 @@ export class CameraService {
     const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
     const imagePath = path.join(env.tempPhotoPath, filename);
 
-    // Ensure temp directory exists
-    if (!fs.existsSync(env.tempPhotoPath)) {
-      fs.mkdirSync(env.tempPhotoPath, { recursive: true });
-    }
+    // Ensure temp directory exists (async with caching)
+    await ensureDir(env.tempPhotoPath);
 
     try {
       let command: string;
@@ -455,9 +634,18 @@ export class CameraService {
     }
 
     // Real camera
+    let model = 'Canon DSLR';
+    if (this.cameraMode === 'dslr-webserver') {
+      model = 'Canon EOS 550D (webserver)';
+    } else if (this.cameraMode === 'dslr-cli' && isWindows) {
+      model = 'Canon EOS 550D (digiCamControl CLI)';
+    } else if (this.camera?.model) {
+      model = this.camera.model;
+    }
+
     return {
       connected: true,
-      model: isWindows ? 'Canon EOS 550D (digiCamControl)' : (this.camera?.model || 'Canon DSLR'),
+      model,
       battery: 100,
       storageAvailable: true,
       settings: {

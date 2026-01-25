@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { db } from '../db';
 import { photos, sessions, filters } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { HTTP_STATUS, MESSAGES, ENDPOINTS } from '@photonic/config';
 import { logger } from '@photonic/utils';
 import { imageProcessor } from '../services/image-processor';
@@ -34,8 +34,15 @@ export async function photoRoutes(fastify: FastifyInstance) {
     `${ENDPOINTS.PHOTOS}/capture`,
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const body = request.body as CapturePhotoRequest;
-        logger.info('Capturing photo', { sessionId: body.sessionId });
+        const body = request.body as CapturePhotoRequest & {
+          sequenceNumber?: number;
+          retakePhotoId?: string;
+        };
+        logger.info('Capturing photo', {
+          sessionId: body.sessionId,
+          sequenceNumber: body.sequenceNumber,
+          retakePhotoId: body.retakePhotoId,
+        });
 
         // Verify session exists
         const session = await db.query.sessions.findFirst({
@@ -57,54 +64,104 @@ export async function photoRoutes(fastify: FastifyInstance) {
           await cameraService.initialize();
         }
 
-        // Calculate sequence number based on existing photos
-        const existingPhotos = await db.query.photos.findMany({
-          where: eq(photos.sessionId, body.sessionId),
-        });
-        const sequenceNumber = existingPhotos.filter((p) => p.sequenceNumber <= 3).length + 1;
+        // Use provided sequence number or calculate based on existing photos
+        let sequenceNumber = body.sequenceNumber;
+        if (!sequenceNumber) {
+          const existingPhotos = await db.query.photos.findMany({
+            where: eq(photos.sessionId, body.sessionId),
+          });
+          sequenceNumber = existingPhotos.filter((p) => p.sequenceNumber <= 3).length + 1;
+        }
 
         // Capture photo using local camera service
         const captureResult = await cameraService.capturePhoto(body.sessionId, sequenceNumber);
 
-        // Generate photo ID and paths
-        const photoId = nanoid();
-        const originalFilename = `photo-${photoId}-original.jpg`;
-        const originalPath = path.join(photosDir, originalFilename);
+        // Handle retake mode or new photo
+        if (body.retakePhotoId) {
+          // Retake mode: Update existing photo
+          const existingPhoto = await db.query.photos.findFirst({
+            where: eq(photos.id, body.retakePhotoId),
+          });
 
-        // Copy photo from temp directory to photos directory
-        await fs.copyFile(captureResult.imagePath, originalPath);
+          if (!existingPhoto) {
+            return reply.code(HTTP_STATUS.NOT_FOUND).send({
+              success: false,
+              message: 'Photo to retake not found',
+            });
+          }
 
-        // Create photo record
-        const newPhoto = {
-          id: photoId,
-          sessionId: body.sessionId,
-          originalPath,
-          processedPath: null,
-          templateId: body.templateId || null,
-          filterId: body.filterId || null,
-          photoNumber: 1, // TODO: calculate based on session photos
-        };
+          const originalFilename = `photo-${body.retakePhotoId}-original.jpg`;
+          const originalPath = path.join(photosDir, originalFilename);
 
-        await db.insert(photos).values(newPhoto as any);
+          // Copy new photo to replace old one
+          await fs.copyFile(captureResult.imagePath, originalPath);
 
-        // If template or filter specified, process immediately
-        if (body.templateId || body.filterId) {
-          await imageProcessor.processPhoto(photoId, {
-            templateId: body.templateId,
-            filterId: body.filterId,
+          // Update photo record
+          await db.update(photos)
+            .set({
+              originalPath,
+              captureTime: new Date().toISOString(),
+              metadata: captureResult.metadata as any,
+            })
+            .where(eq(photos.id, body.retakePhotoId));
+
+          const updatedPhoto = await db.query.photos.findFirst({
+            where: eq(photos.id, body.retakePhotoId),
+          });
+
+          logger.info('Photo retaken successfully', { photoId: body.retakePhotoId });
+
+          return reply.code(HTTP_STATUS.OK).send({
+            success: true,
+            message: 'Photo retaken successfully',
+            data: {
+              photo: updatedPhoto,
+              captureUrl: `/data/photos/${originalFilename}`,
+            },
+          });
+        } else {
+          // New photo mode
+          const photoId = nanoid();
+          const originalFilename = `photo-${photoId}-original.jpg`;
+          const originalPath = path.join(photosDir, originalFilename);
+
+          // Copy photo from temp directory to photos directory
+          await fs.copyFile(captureResult.imagePath, originalPath);
+
+          // Create photo record
+          const newPhoto = {
+            id: photoId,
+            sessionId: body.sessionId,
+            originalPath,
+            processedPath: null,
+            templateId: body.templateId || null,
+            filterId: body.filterId || null,
+            sequenceNumber,
+            captureTime: new Date().toISOString(),
+            metadata: captureResult.metadata as any,
+          };
+
+          await db.insert(photos).values(newPhoto as any);
+
+          // If template or filter specified, process immediately
+          if (body.templateId || body.filterId) {
+            await imageProcessor.processPhoto(photoId, {
+              templateId: body.templateId,
+              filterId: body.filterId,
+            });
+          }
+
+          logger.info('Photo captured successfully', { photoId });
+
+          return reply.code(HTTP_STATUS.CREATED).send({
+            success: true,
+            message: MESSAGES.SUCCESS.PHOTO_CAPTURED,
+            data: {
+              photo: newPhoto,
+              captureUrl: `/data/photos/${originalFilename}`,
+            },
           });
         }
-
-        logger.info('Photo captured successfully', { photoId });
-
-        return reply.code(HTTP_STATUS.CREATED).send({
-          success: true,
-          message: MESSAGES.SUCCESS.PHOTO_CAPTURED,
-          data: {
-            photo: newPhoto,
-            captureUrl: `/data/photos/${originalFilename}`,
-          },
-        });
       } catch (error) {
         logger.error('Failed to capture photo', {
           error: error instanceof Error ? error.message : String(error),
@@ -393,8 +450,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
 
         // If no filter or 'none', return original photo
         if (!filterId || filterId === 'none') {
-          const fs = await import('fs');
-          const imageBuffer = fs.readFileSync(photo.originalPath);
+          const imageBuffer = await fs.readFile(photo.originalPath);
           return reply.type('image/jpeg').send(imageBuffer);
         }
 
@@ -603,24 +659,27 @@ export async function photoRoutes(fastify: FastifyInstance) {
           layout: body.layout,
         });
 
-        // Fetch all photos
-        const photoRecords = await Promise.all(
-          body.photoIds.map((id) =>
-            db.query.photos.findFirst({ where: eq(photos.id, id) })
-          )
-        );
+        // Fetch all photos in a single query (fix N+1)
+        const photoRecords = await db.query.photos.findMany({
+          where: inArray(photos.id, body.photoIds),
+        });
 
         // Check if all photos exist
-        if (photoRecords.some((p) => !p)) {
+        if (photoRecords.length !== body.photoIds.length) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
             message: 'One or more photos not found',
           });
         }
 
+        // Reorder to match requested order
+        const orderedPhotos = body.photoIds.map(id =>
+          photoRecords.find(p => p.id === id)!
+        );
+
         // Use processed paths if available, otherwise original
-        const photoPaths = photoRecords.map(
-          (p) => p!.processedPath || p!.originalPath
+        const photoPaths = orderedPhotos.map(
+          (p) => p.processedPath || p.originalPath
         );
 
         // Generate collage

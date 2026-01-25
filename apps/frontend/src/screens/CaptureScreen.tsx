@@ -6,6 +6,8 @@ import { useCountdown } from '../hooks/useCountdown';
 import { photoService } from '../services/photoService';
 import { APP_CONFIG } from '@photonic/config';
 import { WebcamPreview, WebcamPreviewHandle } from '../components/WebcamPreview';
+import { DSLRPreview } from '../components/DSLRPreview';
+import { devLog, devError } from '../utils/logger';
 
 const CaptureScreen: React.FC = () => {
   const { setScreen, showToast, retakeMode, clearRetakeMode } = useUIStore();
@@ -13,12 +15,13 @@ const CaptureScreen: React.FC = () => {
   const { addPhoto, updatePhoto, photos } = usePhotoStore();
 
   // Debug: Log mirror preference
-  console.log('[CaptureScreen] mirrorPreference:', mirrorPreference);
-  console.log('[CaptureScreen] mirrored prop will be:', mirrorPreference !== 'non-mirrored');
+  devLog('[CaptureScreen] mirrorPreference:', mirrorPreference);
+  devLog('[CaptureScreen] mirrored prop will be:', mirrorPreference !== 'non-mirrored');
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [isCapturing, setIsCapturing] = useState(false);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [webcamReady, setWebcamReady] = useState(false);
+  const [cameraMode, setCameraMode] = useState<string>('webcam');
   const webcamRef = useRef<WebcamPreviewHandle>(null);
   const isCapturingRef = useRef(false); // Ref for guard check to avoid stale closures
 
@@ -74,8 +77,35 @@ const CaptureScreen: React.FC = () => {
     await capturePhoto();
   });
 
+  // Fetch camera mode on mount
+  useEffect(() => {
+    const fetchCameraMode = async () => {
+      try {
+        const response = await fetch('http://localhost:4000/api/camera/mode');
+        const data = await response.json();
+        if (data.success && data.data.mode) {
+          setCameraMode(data.data.mode);
+          devLog('[CaptureScreen] Camera mode:', data.data.mode);
+          // For DSLR modes, camera is always ready
+          if (data.data.mode === 'dslr-webserver' || data.data.mode === 'dslr-cli') {
+            setWebcamReady(true);
+          }
+        }
+      } catch (err) {
+        devError('[CaptureScreen] Failed to fetch camera mode:', err);
+        // Default to webcam mode on error
+        setCameraMode('webcam');
+      }
+    };
+
+    fetchCameraMode();
+  }, []);
+
   const capturePhoto = useCallback(async () => {
-    if (!session || !webcamRef.current) return;
+    if (!session) return;
+
+    // For webcam mode, we need the webcam ref
+    if (cameraMode === 'webcam' && !webcamRef.current) return;
 
     // Guard: Check if already capturing (use ref to avoid stale closure)
     if (isCapturingRef.current) return;
@@ -87,7 +117,7 @@ const CaptureScreen: React.FC = () => {
 
     // In normal mode, don't capture if we already have all photos
     if (!isRetakeMode && rawPhotoCount >= totalPhotos) {
-      console.log(`[CaptureScreen] Already have ${totalPhotos} photos, skipping capture`);
+      devLog(`[CaptureScreen] Already have ${totalPhotos} photos, skipping capture`);
       return;
     }
 
@@ -95,23 +125,46 @@ const CaptureScreen: React.FC = () => {
       isCapturingRef.current = true;
       setIsCapturing(true);
 
-      // Capture from browser webcam
-      const imageBlob = await webcamRef.current.capture();
+      let photo;
+      let localPreviewUrl: string | null = null;
 
-      if (!imageBlob) {
-        throw new Error('Failed to capture from webcam');
+      if (cameraMode === 'webcam') {
+        // Webcam mode: Capture from browser
+        devLog('[CaptureScreen] Capturing from webcam');
+        const imageBlob = await webcamRef.current!.capture();
+
+        if (!imageBlob) {
+          throw new Error('Failed to capture from webcam');
+        }
+
+        // Show local preview immediately
+        localPreviewUrl = URL.createObjectURL(imageBlob);
+        setCapturedPhoto(localPreviewUrl);
+
+        // Upload to backend (pass retakePhotoId when in retake mode)
+        photo = await photoService.upload(
+          session.id,
+          imageBlob,
+          isRetakeMode ? retakeMode?.photoId : undefined
+        );
+      } else {
+        // DSLR mode: Capture via backend API
+        devLog('[CaptureScreen] Capturing from DSLR via backend');
+        const sequenceNumber = isRetakeMode
+          ? ((retakeMode?.photoIndex ?? 0) + 1)
+          : (currentPhotoIndex + 1);
+
+        photo = await photoService.capture(
+          session.id,
+          sequenceNumber,
+          isRetakeMode ? retakeMode?.photoId : undefined
+        );
+
+        // For DSLR, show the captured image from backend
+        if (photo.originalPath) {
+          setCapturedPhoto(photo.originalPath);
+        }
       }
-
-      // Show local preview immediately
-      const localPreviewUrl = URL.createObjectURL(imageBlob);
-      setCapturedPhoto(localPreviewUrl);
-
-      // Upload to backend (pass retakePhotoId when in retake mode)
-      const photo = await photoService.upload(
-        session.id,
-        imageBlob,
-        isRetakeMode ? retakeMode?.photoId : undefined
-      );
 
       // In retake mode, replace the existing photo; otherwise, add new
       if (isRetakeMode && retakeMode) {
@@ -135,7 +188,10 @@ const CaptureScreen: React.FC = () => {
 
       // Wait 2 seconds before next photo or transition
       photoPreviewTimeoutRef.current = setTimeout(() => {
-        URL.revokeObjectURL(localPreviewUrl);
+        // Only revoke object URL if it was created from a blob (webcam mode)
+        if (localPreviewUrl) {
+          URL.revokeObjectURL(localPreviewUrl);
+        }
         setCapturedPhoto(null);
         isCapturingRef.current = false;
         setIsCapturing(false);
@@ -144,7 +200,7 @@ const CaptureScreen: React.FC = () => {
         const nextIndex = currentPhotoIndex + 1;
         if (nextIndex >= totalPhotos) {
           // All photos captured - transition to photo review
-          console.log('[CaptureScreen] Last photo captured, transitioning to photo-review');
+          devLog('[CaptureScreen] Last photo captured, transitioning to photo-review');
           stop();
           if (isRetakeMode) {
             clearRetakeMode();
@@ -156,7 +212,7 @@ const CaptureScreen: React.FC = () => {
         }
       }, 2000);
     } catch (error) {
-      console.error('Failed to capture photo:', error);
+      devError('Failed to capture photo:', error);
       showToast({
         type: 'error',
         message: 'Gagal mengambil foto. Mencoba lagi...',
@@ -171,7 +227,7 @@ const CaptureScreen: React.FC = () => {
         start();
       }, 2000);
     }
-  }, [session, addPhoto, updatePhoto, showToast, reset, start, isRetakeMode, retakeMode, photos, currentPhotoIndex, totalPhotos, stop, clearRetakeMode, setScreen]);
+  }, [session, addPhoto, updatePhoto, showToast, reset, start, isRetakeMode, retakeMode, photos, currentPhotoIndex, totalPhotos, stop, clearRetakeMode, setScreen, cameraMode]);
 
   // Effect for starting countdowns for each photo
   useEffect(() => {
@@ -223,16 +279,24 @@ const CaptureScreen: React.FC = () => {
               </div>
             </div>
 
-            {/* Camera frame - always contains WebcamPreview, overlay on top */}
+            {/* Camera frame - contains WebcamPreview or DSLRPreview, overlay on top */}
             <div className="relative w-full max-w-3xl aspect-video border-[3px] border-neo-yellow overflow-hidden">
-              {/* WebcamPreview - always mounted, never unmounted during capture */}
-              <WebcamPreview
-                ref={webcamRef}
-                onReady={handleWebcamReady}
-                onError={handleWebcamError}
-                className="w-full h-full"
-                mirrored={mirrorPreference !== 'non-mirrored'}
-              />
+              {/* Camera Preview - conditional based on mode */}
+              {cameraMode === 'webcam' ? (
+                <WebcamPreview
+                  ref={webcamRef}
+                  onReady={handleWebcamReady}
+                  onError={handleWebcamError}
+                  className="w-full h-full"
+                  mirrored={mirrorPreference !== 'non-mirrored'}
+                />
+              ) : (
+                <DSLRPreview
+                  onReady={handleWebcamReady}
+                  onError={handleWebcamError}
+                  mirrored={mirrorPreference !== 'non-mirrored'}
+                />
+              )}
 
               {/* Captured photo overlay - absolute positioned on top of webcam */}
               <div

@@ -4,6 +4,8 @@ import { useSessionStore } from '../stores/sessionStore';
 import { Button } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useSessionBackConfirm } from '../hooks/useSessionBackConfirm';
+import { DSLRPreview } from '../components/DSLRPreview';
+import { devLog, devError } from '../utils/logger';
 
 /**
  * MirrorSelectionScreen
@@ -18,6 +20,7 @@ const MirrorSelectionScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [cameraMode, setCameraMode] = useState<string>('webcam');
 
   const streamRef = useRef<MediaStream | null>(null);
   const videoLeftRef = useRef<HTMLVideoElement>(null);
@@ -27,20 +30,50 @@ const MirrorSelectionScreen: React.FC = () => {
   // Use confirmation dialog hook for back navigation
   const { handleBack, showConfirmDialog, handleConfirm, handleCancel } = useSessionBackConfirm('frame-selection');
 
-  // Initialize camera stream
+  // Fetch camera mode on mount
   useEffect(() => {
+    const fetchCameraMode = async () => {
+      try {
+        const response = await fetch('http://localhost:4000/api/camera/mode');
+        const data = await response.json();
+        if (data.success && data.data.mode) {
+          setCameraMode(data.data.mode);
+          devLog('[MirrorSelection] Camera mode:', data.data.mode);
+        }
+      } catch (err) {
+        devError('[MirrorSelection] Failed to fetch camera mode:', err);
+        // Default to webcam mode on error
+        setCameraMode('webcam');
+      }
+    };
+
+    fetchCameraMode();
+  }, []);
+
+  // Initialize camera stream (only for webcam mode)
+  useEffect(() => {
+    // Skip camera initialization if we haven't determined the mode yet
+    if (!cameraMode) return;
+
+    // For DSLR modes, we don't need to initialize webcam stream
+    if (cameraMode === 'dslr-webserver' || cameraMode === 'dslr-cli') {
+      devLog('[MirrorSelection] Using DSLR mode, skipping webcam initialization');
+      setIsLoading(false);
+      return;
+    }
+
     // Reset mounted flag (important for React Strict Mode double-mount)
     mountedRef.current = true;
 
     const startCamera = async () => {
       try {
-        console.log('[MirrorSelection] Starting camera...');
+        devLog('[MirrorSelection] Starting webcam...');
 
         // Wait a frame for refs to be populated after render
         await new Promise(resolve => requestAnimationFrame(resolve));
 
         if (!videoLeftRef.current || !videoRightRef.current) {
-          console.error('[MirrorSelection] Video refs not available');
+          devError('[MirrorSelection] Video refs not available');
           if (mountedRef.current) {
             setError('Gagal memuat komponen video');
             setIsLoading(false);
@@ -48,7 +81,7 @@ const MirrorSelectionScreen: React.FC = () => {
           return;
         }
 
-        console.log('[MirrorSelection] Requesting camera access...');
+        devLog('[MirrorSelection] Requesting camera access...');
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1920 },
@@ -58,10 +91,10 @@ const MirrorSelectionScreen: React.FC = () => {
           audio: false,
         });
 
-        console.log('[MirrorSelection] Got stream, active:', stream.active);
+        devLog('[MirrorSelection] Got stream, active:', stream.active);
 
         if (!mountedRef.current) {
-          console.log('[MirrorSelection] Component unmounted, stopping stream');
+          devLog('[MirrorSelection] Component unmounted, stopping stream');
           stream.getTracks().forEach(track => track.stop());
           return;
         }
@@ -72,29 +105,29 @@ const MirrorSelectionScreen: React.FC = () => {
         videoLeftRef.current.srcObject = stream;
         videoRightRef.current.srcObject = stream;
 
-        console.log('[MirrorSelection] Playing videos...');
+        devLog('[MirrorSelection] Playing videos...');
 
         // Play both videos - catch individual errors
         try {
           await videoLeftRef.current.play();
-          console.log('[MirrorSelection] Left video playing');
+          devLog('[MirrorSelection] Left video playing');
         } catch (playErr) {
-          console.error('[MirrorSelection] Left video play error:', playErr);
+          devError('[MirrorSelection] Left video play error:', playErr);
         }
 
         try {
           await videoRightRef.current.play();
-          console.log('[MirrorSelection] Right video playing');
+          devLog('[MirrorSelection] Right video playing');
         } catch (playErr) {
-          console.error('[MirrorSelection] Right video play error:', playErr);
+          devError('[MirrorSelection] Right video play error:', playErr);
         }
 
         if (mountedRef.current) {
-          console.log('[MirrorSelection] Camera ready!');
+          devLog('[MirrorSelection] Camera ready!');
           setIsLoading(false);
         }
       } catch (err: any) {
-        console.error('[MirrorSelection] Camera error:', err);
+        devError('[MirrorSelection] Camera error:', err);
         if (!mountedRef.current) return;
 
         let errorMessage = 'Gagal mengakses kamera';
@@ -114,14 +147,14 @@ const MirrorSelectionScreen: React.FC = () => {
     startCamera();
 
     return () => {
-      console.log('[MirrorSelection] Cleanup - stopping stream');
+      devLog('[MirrorSelection] Cleanup - stopping stream');
       mountedRef.current = false;
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
     };
-  }, []);
+  }, [cameraMode]);
 
   const handleContinue = () => {
     if (!selection) return;
@@ -202,14 +235,18 @@ const MirrorSelectionScreen: React.FC = () => {
         >
           {/* Video Preview */}
           <div className="flex-1 relative bg-gray-900 overflow-hidden">
-            <video
-              ref={videoLeftRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-              style={{ transform: 'scaleX(-1)' }}
-            />
+            {cameraMode === 'webcam' ? (
+              <video
+                ref={videoLeftRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+                style={{ transform: 'scaleX(-1)' }}
+              />
+            ) : (
+              <DSLRPreview mirrored={true} />
+            )}
             {/* Selection Indicator */}
             {selection === 'mirrored' && (
               <div className="absolute top-4 right-4 w-8 h-8 bg-neo-yellow border-2 border-black flex items-center justify-center shadow-neo">
@@ -239,13 +276,17 @@ const MirrorSelectionScreen: React.FC = () => {
         >
           {/* Video Preview */}
           <div className="flex-1 relative bg-gray-900 overflow-hidden">
-            <video
-              ref={videoRightRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
+            {cameraMode === 'webcam' ? (
+              <video
+                ref={videoRightRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <DSLRPreview mirrored={false} />
+            )}
             {/* Selection Indicator */}
             {selection === 'non-mirrored' && (
               <div className="absolute top-4 right-4 w-8 h-8 bg-neo-yellow border-2 border-black flex items-center justify-center shadow-neo">

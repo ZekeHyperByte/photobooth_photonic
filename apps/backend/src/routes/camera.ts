@@ -6,6 +6,8 @@ import type {
   CameraCaptureRequest,
   ConfigureCameraRequest,
 } from '@photonic/types';
+import axios from 'axios';
+import { env } from '../config/env';
 
 const logger = createLogger('camera-routes');
 
@@ -169,16 +171,67 @@ export async function cameraRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /api/camera/preview
-   * Get camera preview stream (placeholder for future implementation)
+   * Get camera preview stream (MJPEG for DSLR webserver mode)
    */
   fastify.get(
     '/api/camera/preview',
     async (request: FastifyRequest, reply: FastifyReply) => {
-      return reply.code(HTTP_STATUS.SERVICE_UNAVAILABLE).send({
-        success: false,
-        error: 'Not Implemented',
-        message: 'Preview stream not yet implemented',
-      });
+      try {
+        const cameraService = getCameraService();
+
+        // Only available in DSLR webserver mode
+        if ((cameraService as any).cameraMode !== 'dslr-webserver') {
+          return reply.code(HTTP_STATUS.SERVICE_UNAVAILABLE).send({
+            success: false,
+            error: 'Not Available',
+            message: 'Preview stream only available in DSLR webserver mode',
+          });
+        }
+
+        // Proxy MJPEG stream from DigiCamControl webserver
+        const streamUrl = `http://${env.digiCamControl.host}:${env.digiCamControl.port}/liveview.mjpg`;
+
+        const response = await axios.get(streamUrl, {
+          responseType: 'stream',
+          timeout: 5000,
+        });
+
+        reply.type('multipart/x-mixed-replace; boundary=frame');
+        return reply.send(response.data);
+      } catch (error: any) {
+        logger.error('Failed to get preview stream:', error);
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          error: 'Preview Error',
+          message: error.message || 'Failed to get preview stream',
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/camera/mode
+   * Get current camera mode
+   */
+  fastify.get(
+    '/api/camera/mode',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const cameraService = getCameraService();
+        const mode = (cameraService as any).cameraMode;
+
+        return reply.code(HTTP_STATUS.OK).send({
+          success: true,
+          data: { mode },
+        });
+      } catch (error: any) {
+        logger.error('Failed to get camera mode:', error);
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          error: 'Mode Error',
+          message: error.message,
+        });
+      }
     }
   );
 

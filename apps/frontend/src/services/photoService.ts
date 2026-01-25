@@ -1,16 +1,40 @@
 import { apiClient } from './api';
 import type { Photo } from '@photonic/types';
 import { API_ENDPOINTS } from '@photonic/config';
+import { devLog, devError, devWarn } from '../utils/logger';
 
 export const photoService = {
   /**
-   * Capture a photo via bridge/camera service
+   * Capture a photo via camera service (for DSLR mode)
+   * @param sessionId - Session ID
+   * @param sequenceNumber - Photo sequence number (1, 2, 3, etc.)
+   * @param retakePhotoId - Optional ID of photo being retaken
    */
-  capture: async (sessionId: string): Promise<Photo> => {
+  capture: async (sessionId: string, sequenceNumber: number, retakePhotoId?: string): Promise<Photo> => {
     const response = await apiClient.post(`${API_ENDPOINTS.PHOTOS}/capture`, {
       sessionId,
+      sequenceNumber,
+      retakePhotoId,
     });
-    return response.data.data || response.data;
+
+    // Extract photo and URL from response (same format as upload)
+    const data = response.data.data || response.data;
+    const photo = data.photo || data;
+    const captureUrl = data.captureUrl;
+
+    // Build full URL for originalPath if we have a relative path
+    if (captureUrl) {
+      const fullUrl = captureUrl.startsWith('/')
+        ? `${import.meta.env.VITE_API_URL || 'http://localhost:4000'}${captureUrl}`
+        : captureUrl;
+
+      return {
+        ...photo,
+        originalPath: fullUrl,
+      };
+    }
+
+    return photo;
   },
 
   /**
@@ -25,7 +49,7 @@ export const photoService = {
       reader.readAsDataURL(imageBlob);
     });
 
-    console.log('[photoService] Uploading photo, sessionId:', sessionId, 'blob size:', imageBlob.size, 'retakePhotoId:', retakePhotoId);
+    devLog('[photoService] Uploading photo, sessionId:', sessionId, 'blob size:', imageBlob.size, 'retakePhotoId:', retakePhotoId);
 
     try {
       const response = await apiClient.post(`${API_ENDPOINTS.PHOTOS}/upload`, {
@@ -33,7 +57,7 @@ export const photoService = {
         imageData: base64,
         retakePhotoId,
       });
-      console.log('[photoService] Upload response:', response.data);
+      devLog('[photoService] Upload response:', response.data);
 
       // Extract photo and URL from response
       const data = response.data.data || response.data;
@@ -54,7 +78,7 @@ export const photoService = {
 
       return photo;
     } catch (error: any) {
-      console.error('[photoService] Upload failed:', error.response?.data || error.message);
+      devError('[photoService] Upload failed:', error.response?.data || error.message);
       throw error;
     }
   },
@@ -113,7 +137,7 @@ export const photoService = {
    * Generate filter preview for a photo
    */
   generateFilterPreview: async (photoId: string, filterId: string): Promise<string> => {
-    console.log('[photoService] Generating filter preview:', { photoId, filterId });
+    devLog('[photoService] Generating filter preview:', { photoId, filterId });
 
     try {
       const response = await apiClient.post(
@@ -126,10 +150,10 @@ export const photoService = {
       const blob = response.data as Blob;
       const url = URL.createObjectURL(blob);
 
-      console.log('[photoService] Filter preview generated:', url);
+      devLog('[photoService] Filter preview generated:', url);
       return url;
     } catch (error: any) {
-      console.error('[photoService] Filter preview generation failed:', error.response?.data || error.message);
+      devError('[photoService] Filter preview generation failed:', error.response?.data || error.message);
       throw error;
     }
   },
@@ -142,7 +166,7 @@ export const photoService = {
     templateId: string,
     filterId?: string
   ): Promise<Photo> => {
-    console.log('[photoService] Creating A3 composite:', { sessionId, templateId, filterId });
+    devLog('[photoService] Creating A3 composite:', { sessionId, templateId, filterId });
 
     try {
       const response = await apiClient.post(`${API_ENDPOINTS.PHOTOS}/composite-a3`, {
@@ -151,13 +175,13 @@ export const photoService = {
         filterId,
       });
 
-      console.log('[photoService] A3 composite created:', response.data);
+      devLog('[photoService] A3 composite created:', response.data);
 
       const data = response.data.data || response.data;
       const photo = data.photo || data;
       const compositeUrl = data.compositeUrl;
 
-      console.log('[photoService] Composite response data:', { photo, compositeUrl });
+      devLog('[photoService] Composite response data:', { photo, compositeUrl });
 
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -167,7 +191,7 @@ export const photoService = {
           ? `${apiUrl}${compositeUrl}`
           : compositeUrl;
 
-        console.log('[photoService] Using compositeUrl:', fullUrl);
+        devLog('[photoService] Using compositeUrl:', fullUrl);
 
         return {
           ...photo,
@@ -181,7 +205,7 @@ export const photoService = {
         const filename = photo.processedPath.split('/').pop();
         const fullUrl = `${apiUrl}/data/processed/${filename}`;
 
-        console.log('[photoService] Fallback: constructed URL from processedPath:', fullUrl);
+        devLog('[photoService] Fallback: constructed URL from processedPath:', fullUrl);
 
         return {
           ...photo,
@@ -190,10 +214,10 @@ export const photoService = {
         };
       }
 
-      console.warn('[photoService] No compositeUrl or processedPath available, returning raw photo');
+      devWarn('[photoService] No compositeUrl or processedPath available, returning raw photo');
       return photo;
     } catch (error: any) {
-      console.error('[photoService] A3 composite creation failed:', error.response?.data || error.message);
+      devError('[photoService] A3 composite creation failed:', error.response?.data || error.message);
       throw error;
     }
   },

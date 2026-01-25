@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, lazy, Suspense } from 'react';
 import { useUIStore } from './stores/uiStore';
 import { usePhotoStore } from './stores/photoStore';
 import { useSessionStore } from './stores/sessionStore';
@@ -6,33 +6,41 @@ import { useInactivity } from './hooks/useInactivity';
 import { Toast } from './components/ui/Toast';
 import { SessionTimer } from './components/SessionTimer';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { devLog } from './utils/logger';
 
-// Import all screens
-import IdleScreen from './screens/IdleScreen';
-import PaymentMethodScreen from './screens/PaymentMethodScreen';
-import CodeVerificationScreen from './screens/CodeVerificationScreen';
-import SessionNoticeScreen from './screens/SessionNoticeScreen';
-import FrameSelectionScreen from './screens/FrameSelectionScreen';
-import MirrorSelectionScreen from './screens/MirrorSelectionScreen';
-import CaptureScreen from './screens/CaptureScreen';
-import PhotoReviewScreen from './screens/PhotoReviewScreen';
-import FilterSelectionScreen from './screens/FilterSelectionScreen';
-import ProcessingScreen from './screens/ProcessingScreen';
-import PreviewScreen from './screens/PreviewScreen';
-import DeliveryScreen from './screens/DeliveryScreen';
-import ErrorScreen from './screens/ErrorScreen';
+// Lazy load all screens for better initial load performance
+const IdleScreen = lazy(() => import('./screens/IdleScreen'));
+const PaymentMethodScreen = lazy(() => import('./screens/PaymentMethodScreen'));
+const CodeVerificationScreen = lazy(() => import('./screens/CodeVerificationScreen'));
+const SessionNoticeScreen = lazy(() => import('./screens/SessionNoticeScreen'));
+const FrameSelectionScreen = lazy(() => import('./screens/FrameSelectionScreen'));
+const MirrorSelectionScreen = lazy(() => import('./screens/MirrorSelectionScreen'));
+const CaptureScreen = lazy(() => import('./screens/CaptureScreen'));
+const PhotoReviewScreen = lazy(() => import('./screens/PhotoReviewScreen'));
+const FilterSelectionScreen = lazy(() => import('./screens/FilterSelectionScreen'));
+const ProcessingScreen = lazy(() => import('./screens/ProcessingScreen'));
+const PreviewScreen = lazy(() => import('./screens/PreviewScreen'));
+const DeliveryScreen = lazy(() => import('./screens/DeliveryScreen'));
+const ErrorScreen = lazy(() => import('./screens/ErrorScreen'));
+
+// Simple loading fallback for screen transitions
+const ScreenLoader = () => (
+  <div className="w-full h-full flex items-center justify-center bg-gray-100">
+    <div className="w-12 h-12 border-4 border-black border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 const App: React.FC = () => {
-  console.log('App component rendering...');
+  devLog('App component rendering...');
 
   const { currentScreen, resetToIdle } = useUIStore();
   const { resetPhotos } = usePhotoStore();
   const { resetSession } = useSessionStore();
-  console.log('Current screen:', currentScreen);
+  devLog('Current screen:', currentScreen);
 
   // Combined reset function that clears all state when returning to idle
   const resetAllState = useCallback(() => {
-    console.log('Resetting all state (UI, photos, session)');
+    devLog('Resetting all state (UI, photos, session)');
     resetToIdle();
     resetPhotos();
     resetSession();
@@ -43,13 +51,13 @@ const App: React.FC = () => {
 
   // Reset all state on mount (fresh start)
   useEffect(() => {
-    console.log('App mounted, resetting to idle');
+    devLog('App mounted, resetting to idle');
     resetAllState();
   }, []);
 
   // Simple screen router based on currentScreen state
   const renderScreen = () => {
-    console.log('Rendering screen:', currentScreen);
+    devLog('Rendering screen:', currentScreen);
     try {
       switch (currentScreen) {
         case 'idle':
@@ -82,7 +90,7 @@ const App: React.FC = () => {
           return <IdleScreen />;
       }
     } catch (error) {
-      console.error('Error rendering screen:', error);
+      devLog('Error rendering screen:', error);
       return (
         <div style={{ padding: '2rem', color: 'red' }}>
           <h1>Error rendering screen: {currentScreen}</h1>
@@ -95,7 +103,9 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <div className="w-screen h-screen overflow-hidden bg-gray-100">
-        {renderScreen()}
+        <Suspense fallback={<ScreenLoader />}>
+          {renderScreen()}
+        </Suspense>
         <Toast />
         <SessionTimer />
       </div>

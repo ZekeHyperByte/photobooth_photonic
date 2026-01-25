@@ -1,19 +1,32 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 
+/**
+ * Hook to detect user inactivity and trigger a callback after a timeout.
+ * Optimized to prevent event listener re-registration when callback changes.
+ * Uses refs to store mutable values without causing re-renders or effect re-runs.
+ */
 export const useInactivity = (timeoutMs: number, onTimeout: () => void) => {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Store callback in ref to prevent effect re-runs when callback changes
+  const onTimeoutRef = useRef(onTimeout);
+  // Store timeoutMs in ref for the same reason
+  const timeoutMsRef = useRef(timeoutMs);
 
-  const resetTimer = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-
-    timeoutRef.current = setTimeout(() => {
-      onTimeout();
-    }, timeoutMs);
-  }, [timeoutMs, onTimeout]);
+  // Update refs when values change (no effect dependency needed)
+  onTimeoutRef.current = onTimeout;
+  timeoutMsRef.current = timeoutMs;
 
   useEffect(() => {
+    const resetTimer = () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      timeoutRef.current = setTimeout(() => {
+        onTimeoutRef.current();
+      }, timeoutMsRef.current);
+    };
+
     // List of events to track user activity
     const events = [
       'mousedown',
@@ -32,7 +45,7 @@ export const useInactivity = (timeoutMs: number, onTimeout: () => void) => {
     // Start the timer on mount
     resetTimer();
 
-    // Cleanup on unmount
+    // Cleanup on unmount - only runs once
     return () => {
       events.forEach((event) => {
         document.removeEventListener(event, resetTimer);
@@ -41,5 +54,5 @@ export const useInactivity = (timeoutMs: number, onTimeout: () => void) => {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [resetTimer]);
+  }, []); // Empty dependency array - listeners only set up once
 };

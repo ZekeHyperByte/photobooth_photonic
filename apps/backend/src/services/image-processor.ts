@@ -13,6 +13,10 @@ import type {
 } from '@photonic/types';
 import { getHardcodedPositions } from './template-positions';
 
+// Limit Sharp concurrency to prevent CPU/memory exhaustion on low-end hardware
+// Default Sharp concurrency is equal to number of CPU cores, which can overwhelm slow systems
+sharp.concurrency(2);
+
 /**
  * Safely parse positionData which may be stored as JSON string
  */
@@ -704,28 +708,35 @@ export class ImageProcessorService {
 
       logger.info(`Found ${sessionPhotos.length} photos for composite`);
 
-      // 4. Load and process each photo with filter
-      const processedPhotos = await Promise.all(
-        sessionPhotos.map(async (photo) => {
-          let image = sharp(photo.originalPath);
+      // 4. Load and process each photo with filter (sequential to limit memory usage)
+      // Fetch filter once instead of per-photo
+      let filterConfig: FilterConfig | null = null;
+      if (filterId) {
+        const filter = await db.query.filters.findFirst({
+          where: eq(filters.id, filterId),
+        });
+        if (filter) {
+          filterConfig = filter.filterConfig;
+          logger.info('Filter loaded for composite', { filterId });
+        }
+      }
 
-          // Apply filter if specified
-          if (filterId) {
-            const filter = await db.query.filters.findFirst({
-              where: eq(filters.id, filterId),
-            });
-            if (filter) {
-              logger.info('Applying filter to photo', {
-                photoId: photo.id,
-                filterId,
-              });
-              image = await this.applyFilter(image, filter.filterConfig);
-            }
-          }
+      // Process photos sequentially to limit CPU/memory usage on low-end hardware
+      const processedPhotos: Buffer[] = [];
+      for (const photo of sessionPhotos) {
+        let image = sharp(photo.originalPath);
 
-          return image.toBuffer();
-        })
-      );
+        // Apply filter if specified
+        if (filterConfig) {
+          logger.info('Applying filter to photo', {
+            photoId: photo.id,
+            filterId,
+          });
+          image = await this.applyFilter(image, filterConfig);
+        }
+
+        processedPhotos.push(await image.toBuffer());
+      }
 
       logger.info('Photos processed with filters');
 

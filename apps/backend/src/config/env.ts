@@ -12,6 +12,13 @@ export const env: {
   tempPhotoPath: string;
   mockCamera: boolean;
   useWebcam: boolean;
+  digiCamControl: {
+    webserverEnabled: boolean;
+    host: string;
+    port: number;
+    timeoutMs: number;
+    pollIntervalMs: number;
+  };
   midtrans: {
     serverKey: string;
     clientKey: string;
@@ -39,6 +46,15 @@ export const env: {
   tempPhotoPath: process.env[ENV_KEYS.TEMP_PHOTO_PATH] || './temp',
   mockCamera: process.env[ENV_KEYS.MOCK_CAMERA] === 'true',
   useWebcam: process.env[ENV_KEYS.USE_WEBCAM] === 'true',
+
+  // DigiCamControl webserver configuration
+  digiCamControl: {
+    webserverEnabled: process.env.DIGICAMCONTROL_WEBSERVER_ENABLED === 'true',
+    host: process.env.DIGICAMCONTROL_WEBSERVER_HOST || 'localhost',
+    port: parseInt(process.env.DIGICAMCONTROL_WEBSERVER_PORT || '5513', 10),
+    timeoutMs: parseInt(process.env.DIGICAMCONTROL_WEBSERVER_TIMEOUT_MS || '30000', 10),
+    pollIntervalMs: parseInt(process.env.DIGICAMCONTROL_POLL_INTERVAL_MS || '500', 10),
+  },
 
   midtrans: {
     serverKey: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY] || '',

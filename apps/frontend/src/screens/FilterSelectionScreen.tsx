@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useUIStore } from '../stores/uiStore';
 import { usePhotoStore } from '../stores/photoStore';
 import { photoService } from '../services/photoService';
+import { devLog, devError } from '../utils/logger';
 
 /**
  * FilterSelectionScreen
@@ -19,19 +20,19 @@ const FilterSelectionScreen: React.FC = () => {
 
   // Debug logging to track photos array
   useEffect(() => {
-    console.log('[FilterSelectionScreen] Component mounted');
-    console.log('[FilterSelectionScreen] Photos in store:', photos?.length || 0);
-    console.log('[FilterSelectionScreen] Photos data:', photos);
+    devLog('[FilterSelectionScreen] Component mounted');
+    devLog('[FilterSelectionScreen] Photos in store:', photos?.length || 0);
+    devLog('[FilterSelectionScreen] Photos data:', photos);
   }, [photos]);
 
   useEffect(() => {
-    console.log('[FilterSelectionScreen] Selected filter ID:', selectedFilterId);
+    devLog('[FilterSelectionScreen] Selected filter ID:', selectedFilterId);
   }, [selectedFilterId]);
 
   // Validate photos exist
   useEffect(() => {
     if (!photos || photos.length === 0) {
-      console.error('[FilterSelectionScreen] No photos found in store!');
+      devError('[FilterSelectionScreen] No photos found in store!');
       showToast({
         type: 'error',
         message: 'Tidak ada foto ditemukan. Silakan ambil foto kembali.',
@@ -52,7 +53,7 @@ const FilterSelectionScreen: React.FC = () => {
         return;
       }
 
-      console.log('[FilterSelectionScreen] Generating filter previews...');
+      devLog('[FilterSelectionScreen] Generating filter previews...');
       setLoadingPreviews(true);
 
       try {
@@ -79,9 +80,9 @@ const FilterSelectionScreen: React.FC = () => {
         );
 
         setFilterPreviews(previewUrls);
-        console.log('[FilterSelectionScreen] All previews generated successfully');
+        devLog('[FilterSelectionScreen] All previews generated successfully');
       } catch (error) {
-        console.error('[FilterSelectionScreen] Preview generation error:', error);
+        devError('[FilterSelectionScreen] Preview generation error:', error);
         showToast({
           type: 'error',
           message: 'Gagal memuat preview filter',
@@ -142,7 +143,7 @@ const FilterSelectionScreen: React.FC = () => {
       // Auto-select "No Filter" by default
       setSelectedFilterId('none');
     } catch (error) {
-      console.error('Failed to load filters:', error);
+      devError('Failed to load filters:', error);
       if (showToast) {
         showToast({
           type: 'error',
