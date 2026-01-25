@@ -55,7 +55,7 @@ export async function getBooths() {
     FROM booths b
     ORDER BY b.name
   `;
-  return result.rows;
+  return result;
 }
 
 // Get today's stats for all booths
@@ -76,7 +76,7 @@ export async function getTodayStats() {
     WHERE date = ${today}
     GROUP BY booth_id
   `;
-  return result.rows;
+  return result;
 }
 
 // Get aggregated stats for today across all booths
@@ -95,7 +95,7 @@ export async function getTodayTotals() {
     FROM daily_stats
     WHERE date = ${today}
   `;
-  return result.rows[0] || {
+  return result[0] || {
     revenue_total: 0,
     transaction_count: 0,
     transaction_success: 0,
