@@ -19,12 +19,16 @@ export const env: {
     timeoutMs: number;
     pollIntervalMs: number;
   };
-  midtrans: {
-    serverKey: string;
-    clientKey: string;
-    environment: 'sandbox' | 'production';
+  payment: {
+    provider: 'mock' | 'midtrans' | 'xendit' | 'stripe';
+    midtrans?: {
+      serverKey: string;
+      clientKey: string;
+      environment: 'sandbox' | 'production';
+    };
   };
   whatsapp: {
+    enabled: boolean;
     provider: 'fonnte' | 'wablas';
     apiKey: string;
   };
@@ -56,13 +60,21 @@ export const env: {
     pollIntervalMs: parseInt(process.env.DIGICAMCONTROL_POLL_INTERVAL_MS || '500', 10),
   },
 
-  midtrans: {
-    serverKey: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY] || '',
-    clientKey: process.env[ENV_KEYS.MIDTRANS_CLIENT_KEY] || '',
-    environment: (process.env[ENV_KEYS.MIDTRANS_ENVIRONMENT] || 'sandbox') as 'sandbox' | 'production',
+  // Payment configuration
+  payment: {
+    // Default to mock provider if not specified
+    provider: (process.env[ENV_KEYS.PAYMENT_PROVIDER] || 'mock') as 'mock' | 'midtrans' | 'xendit' | 'stripe',
+    
+    // Midtrans configuration (only used if provider is 'midtrans')
+    midtrans: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY] ? {
+      serverKey: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY] || '',
+      clientKey: process.env[ENV_KEYS.MIDTRANS_CLIENT_KEY] || '',
+      environment: (process.env[ENV_KEYS.MIDTRANS_ENVIRONMENT] || 'sandbox') as 'sandbox' | 'production',
+    } : undefined,
   },
 
   whatsapp: {
+    enabled: !!process.env[ENV_KEYS.WHATSAPP_API_KEY],
     provider: (process.env[ENV_KEYS.WHATSAPP_PROVIDER] || 'fonnte') as 'fonnte' | 'wablas',
     apiKey: process.env[ENV_KEYS.WHATSAPP_API_KEY] || '',
   },
@@ -85,16 +97,31 @@ export const env: {
  */
 export function validateEnv() {
   const missing: string[] = [];
+  const warnings: string[] = [];
 
-  // Check critical environment variables in production
-  if (env.isProduction) {
-    if (!env.midtrans.serverKey) missing.push('MIDTRANS_SERVER_KEY');
-    if (!env.midtrans.clientKey) missing.push('MIDTRANS_CLIENT_KEY');
+  // Check payment configuration
+  if (env.payment.provider === 'midtrans') {
+    if (!env.payment.midtrans?.serverKey) {
+      missing.push('MIDTRANS_SERVER_KEY');
+    }
+    if (!env.payment.midtrans?.clientKey) {
+      missing.push('MIDTRANS_CLIENT_KEY');
+    }
+  }
+  
+  // Warn if using mock provider in production
+  if (env.isProduction && env.payment.provider === 'mock') {
+    warnings.push('Using mock payment provider in production - no real payments will be processed');
   }
 
   if (missing.length > 0) {
     console.warn(`Warning: Missing environment variables: ${missing.join(', ')}`);
     console.warn('Some features may not work correctly.');
+  }
+
+  if (warnings.length > 0) {
+    console.warn('Warnings:');
+    warnings.forEach(w => console.warn(`  - ${w}`));
   }
 
   return missing.length === 0;

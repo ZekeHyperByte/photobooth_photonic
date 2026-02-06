@@ -232,9 +232,8 @@ DIGICAMCONTROL_PATH=C:\Program Files\digiCamControl
 ## Support Resources
 
 📖 **Setup Guides:**
-- `SETUP-GUIDE-WINDOWS.md` - Detailed Windows setup
+- `WINDOWS-SETUP-COMPLETE.md` - Detailed Windows setup
 - `SYSTEM-ARCHITECTURE.md` - Full system architecture
-- `START-ADMIN-WEB.md` - Admin-web specific instructions
 
 🔧 **Helper Scripts:**
 - `test-camera.bat` - Test Canon 550D

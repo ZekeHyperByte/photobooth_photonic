@@ -130,6 +130,7 @@ export const transactions = sqliteTable('transactions', {
   grossAmount: integer('gross_amount').notNull(),
   paymentType: text('payment_type').notNull().default('qris'),
   transactionStatus: text('transaction_status').notNull(), // TransactionStatus
+  provider: text('provider').notNull().default('mock'), // 'mock' | 'midtrans' | 'xendit' | etc
   qrCodeUrl: text('qr_code_url'),
   qrString: text('qr_string'),
   transactionTime: integer('transaction_time', { mode: 'timestamp' })
@@ -137,7 +138,8 @@ export const transactions = sqliteTable('transactions', {
     .default(sql`CURRENT_TIMESTAMP`),
   paymentTime: integer('payment_time', { mode: 'timestamp' }),
   expiryTime: integer('expiry_time', { mode: 'timestamp' }),
-  midtransResponse: text('midtrans_response', { mode: 'json' }),
+  // Renamed from midtransResponse for generic provider support
+  providerResponse: text('provider_response', { mode: 'json' }),
 });
 
 // ============================================================================

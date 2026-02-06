@@ -1,0 +1,91 @@
+{
+  "name": "@photonic/electron",
+  "version": "0.1.0",
+  "description": "Photonic Photobooth for Linux with gphoto2",
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder",
+    "build:linux": "electron-builder --linux",
+    "build:appimage": "electron-builder --linux AppImage",
+    "build:deb": "electron-builder --linux deb",
+    "postinstall": "electron-builder install-app-deps",
+    "start": "electron .",
+    "start:mock": "MOCK_CAMERA=true electron ."
+  },
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "@fastify/cors": "^9.0.0",
+    "@fastify/multipart": "^8.0.0",
+    "@fastify/static": "^7.0.0",
+    "better-sqlite3": "^9.4.0",
+    "sharp": "^0.33.0",
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0",
+    "winston": "^3.11.0",
+    "node-cron": "^3.0.3",
+    "ws": "^8.16.0",
+    "dotenv": "^16.3.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.0"
+  },
+  "build": {
+    "appId": "com.photonic.app",
+    "productName": "Photonic",
+    "copyright": "Copyright © 2024",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Graphics",
+      "vendor": "Photonic",
+      "maintainer": "support@photonic.com",
+      "synopsis": "Professional photobooth software",
+      "description": "Photonic is a professional photobooth solution for Linux with gphoto2 camera support",
+      "desktop": {
+        "Name": "Photonic",
+        "Comment": "Professional photobooth software",
+        "Categories": "Graphics;Photography;",
+        "StartupWMClass": "photonic",
+        "MimeType": "image/jpeg;image/png;"
+      }
+    },
+    "appImage": {
+      "systemIntegration": "ask",
+      "category": "Graphics"
+    },
+    "deb": {
+      "depends": [
+        "gphoto2",
+        "libcups2",
+        "libgphoto2-6",
+        "libgphoto2-port12"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
