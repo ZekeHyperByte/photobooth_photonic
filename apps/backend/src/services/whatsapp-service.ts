@@ -203,7 +203,7 @@ export class WhatsAppService {
 
       return {
         status: delivery.status,
-        deliveredAt: delivery.deliveredAt,
+        deliveredAt: delivery.sentAt,
       };
     } catch (error) {
       logger.error('Failed to check delivery status', {

@@ -103,7 +103,7 @@ export class ImageProcessorService {
 
         if (filter) {
           logger.info('Applying filter', { filterId: request.filterId });
-          image = await this.applyFilter(image, filter.filterConfig);
+          image = await this.applyFilter(image, filter.filterConfig as FilterConfig);
         }
       }
 
@@ -716,7 +716,7 @@ export class ImageProcessorService {
           where: eq(filters.id, filterId),
         });
         if (filter) {
-          filterConfig = filter.filterConfig;
+          filterConfig = filter.filterConfig as FilterConfig;
           logger.info('Filter loaded for composite', { filterId });
         }
       }

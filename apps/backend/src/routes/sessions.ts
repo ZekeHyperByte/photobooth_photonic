@@ -145,7 +145,7 @@ export async function sessionRoutes(fastify: FastifyInstance) {
           const sessionId = nanoid();
 
           // In DEV_MODE, auto-mark session as 'paid' to bypass payment
-          const initialStatus: SessionStatus = env.devMode ? 'paid' : 'payment_pending';
+          const initialStatus: SessionStatus = env.devMode ? 'paid' : 'awaiting_payment';
 
           const newSession = {
             id: sessionId,

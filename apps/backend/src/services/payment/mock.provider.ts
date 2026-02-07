@@ -18,7 +18,7 @@ interface MockTransaction {
   orderId: string;
   transactionId: string;
   amount: number;
-  status: 'pending' | 'paid' | 'failed' | 'expired';
+  status: 'pending' | 'paid' | 'failed' | 'expired' | 'cancelled';
   createdAt: Date;
   paidAt?: Date;
   expiryTime: Date;

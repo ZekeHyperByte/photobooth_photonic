@@ -44,7 +44,7 @@ export async function eventsRoutes(fastify: FastifyInstance) {
         reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 
         // Close connection if payment is completed
-        if (event.data.isPaid || event.data.status === 'failed') {
+        if (event.data.paid || event.data.status === 'failed') {
           logger.info('Closing SSE connection', {
             orderId,
             status: event.data.status,

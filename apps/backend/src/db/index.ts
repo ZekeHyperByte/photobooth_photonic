@@ -1,4 +1,4 @@
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import Database from 'better-sqlite3';
 import * as schema from './schema';
 import { createLogger } from '@photonic/utils';
@@ -7,7 +7,7 @@ import path from 'path';
 
 const logger = createLogger('database');
 
-let db: ReturnType<typeof drizzle>;
+let db: BetterSQLite3Database<typeof schema>;
 let sqlite: Database.Database;
 
 /**
@@ -69,7 +69,7 @@ export function getDatabase() {
 /**
  * Get raw SQLite instance
  */
-export function getSQLite() {
+export function getSQLite(): Database.Database {
   if (!sqlite) {
     throw new Error('Database not initialized. Call initDatabase() first.');
   }

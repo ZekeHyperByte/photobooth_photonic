@@ -77,7 +77,7 @@ export async function paymentRoutes(fastify: FastifyInstance) {
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
-          message: result.isPaid
+          message: result.paid
             ? MESSAGES.SUCCESS.PAYMENT_VERIFIED
             : 'Payment not completed yet',
           data: result,

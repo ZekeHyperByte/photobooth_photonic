@@ -39,7 +39,7 @@ export class PaymentService {
    */
   async createPayment(
     request: CreatePaymentRequest
-  ): Promise<CreatePaymentResponse> {
+  ): Promise<any> {
     try {
       logger.info('Creating payment', { sessionId: request.sessionId });
 
@@ -127,7 +127,7 @@ export class PaymentService {
    */
   async verifyPayment(
     request: VerifyPaymentRequest
-  ): Promise<VerifyPaymentResponse> {
+  ): Promise<any> {
     try {
       logger.info('Verifying payment', { orderId: request.orderId });
 
@@ -170,10 +170,8 @@ export class PaymentService {
 
       // Emit payment update event
       paymentEvents.emitPaymentUpdate(request.orderId, {
-        orderId: request.orderId,
-        status: result.status,
-        isPaid: result.isPaid,
-        amount: transaction.grossAmount,
+        status: result.status as any,
+        paid: result.isPaid,
       });
 
       return {
@@ -194,7 +192,7 @@ export class PaymentService {
   /**
    * Get payment status
    */
-  async getPaymentStatus(orderId: string): Promise<PaymentStatusResponse> {
+  async getPaymentStatus(orderId: string): Promise<any> {
     try {
       logger.info('Getting payment status', { orderId });
 
@@ -285,10 +283,8 @@ export class PaymentService {
 
       // Emit payment update event
       paymentEvents.emitPaymentUpdate(result.orderId, {
-        orderId: result.orderId,
-        status: result.status,
-        isPaid,
-        amount: transaction.grossAmount,
+        status: result.status as any,
+        paid: isPaid,
       });
 
       logger.info('Webhook processed successfully', {

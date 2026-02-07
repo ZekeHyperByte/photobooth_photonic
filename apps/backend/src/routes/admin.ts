@@ -16,7 +16,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
    * Get dashboard analytics
    */
   fastify.get(
-    `${ENDPOINTS.ADMIN_DASHBOARD || '/api/admin/dashboard'}`,
+    '/api/admin/dashboard',
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         logger.info('Fetching dashboard analytics');
@@ -28,7 +28,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
         const allTransactions = await db.select().from(transactions).all();
         const totalRevenue = allTransactions
-          .filter(t => t.status === 'settlement')
+          .filter(t => t.transactionStatus === 'settlement')
           .reduce((sum, t) => sum + (t.grossAmount || 0), 0);
 
         const allPhotos = await db.select().from(photos).all();
@@ -159,13 +159,9 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
         logger.info('Fetching booth codes', { status });
 
-        let query = db.select().from(boothCodes);
-
-        if (status) {
-          query = query.where(eq(boothCodes.status, status));
-        }
-
-        const codes = await query.orderBy(desc(boothCodes.generatedAt)).all();
+        const codes = status
+          ? await db.select().from(boothCodes).where(eq(boothCodes.status, status)).orderBy(desc(boothCodes.generatedAt)).all()
+          : await db.select().from(boothCodes).orderBy(desc(boothCodes.generatedAt)).all();
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,

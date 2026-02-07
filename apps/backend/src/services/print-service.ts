@@ -187,7 +187,7 @@ export class PrintService {
       }
 
       // Get paper size from template (default to A3 if no template)
-      let paperSize: PaperSize = photo.template?.paperSize || 'A3';
+      let paperSize: PaperSize = (photo.template?.paperSize as PaperSize) || 'A3';
 
       // Allow override for testing (but only A3/A4, not CUSTOM)
       if (request.paperSize) {

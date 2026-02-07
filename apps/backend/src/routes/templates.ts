@@ -452,7 +452,7 @@ export async function templateRoutes(fastify: FastifyInstance) {
 
         return reply.code(HTTP_STATUS.CREATED).send({
           success: true,
-          message: MESSAGES.SUCCESS.TEMPLATE_CREATED,
+          message: MESSAGES.SUCCESS.TEMPLATE_UPLOADED,
           data: newTemplate,
         });
       } catch (error) {
@@ -522,8 +522,9 @@ export async function templateRoutes(fastify: FastifyInstance) {
         }
 
         // Handle paper size update
-        if (validatedData.paperSize !== undefined) {
-          const paperSize = validatedData.paperSize;
+        const rawBody = request.body as Record<string, any>;
+        if (rawBody.paperSize !== undefined) {
+          const paperSize = rawBody.paperSize as import('@photonic/types').PaperSize;
           const canvasWidth = updates.canvasWidth || existingTemplate.canvasWidth;
           const canvasHeight = updates.canvasHeight || existingTemplate.canvasHeight;
 
@@ -571,7 +572,7 @@ export async function templateRoutes(fastify: FastifyInstance) {
             const previewPath = path.join(previewsDir, previewFilename);
 
             // Get positionData - may already be parsed object from drizzle json mode
-            const posData = validatedData.positionData || existingTemplate.positionData || null;
+            const posData = (validatedData.positionData || existingTemplate.positionData || null) as import('@photonic/types').TemplatePosition | import('@photonic/types').MultiZonePosition | null;
 
             await imageProcessor.generateTemplatePreview(
               existingTemplate.filePath,

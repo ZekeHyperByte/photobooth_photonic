@@ -74,7 +74,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         }
 
         // Capture photo using local camera service
-        const captureResult = await cameraService.capturePhoto(body.sessionId, sequenceNumber);
+        const captureResult = await cameraService.capturePhoto(body.sessionId, sequenceNumber!);
 
         // Handle retake mode or new photo
         if (body.retakePhotoId) {
@@ -100,7 +100,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
           await db.update(photos)
             .set({
               originalPath,
-              captureTime: new Date().toISOString(),
+              captureTime: new Date(),
               metadata: captureResult.metadata as any,
             })
             .where(eq(photos.id, body.retakePhotoId));
@@ -469,7 +469,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         // Generate preview with filter
         const previewBuffer = await imageProcessor.generatePhotoFilterPreview(
           photo.originalPath,
-          filter.filterConfig
+          filter.filterConfig as import('@photonic/types').FilterConfig
         );
 
         // Return as JPEG image
@@ -579,7 +579,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
 
         const sessionPhotos = await db.query.photos.findMany({
           where: eq(photos.sessionId, sessionId),
-          orderBy: (photos, { asc }) => [asc(photos.photoNumber)],
+          orderBy: (photos, { asc }) => [asc(photos.sequenceNumber)],
         });
 
         return reply.code(HTTP_STATUS.OK).send({
