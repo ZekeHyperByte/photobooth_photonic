@@ -66,3 +66,7 @@ apps/frontend/release/
 
 # Claude
 .claude/
+
+# ISO Build
+photonic-iso-build/
+*.iso
