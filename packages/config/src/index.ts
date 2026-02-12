@@ -21,38 +21,38 @@ export const API_ENDPOINTS = {
   BRIDGE_BASE: `http://localhost:${PORTS.BRIDGE}`,
 
   // Public endpoints
-  PACKAGES: '/api/packages',
-  SESSIONS: '/api/sessions',
-  PAYMENT_CREATE: '/api/payment/create',
-  PAYMENT_VERIFY: '/api/payment/verify',
-  PAYMENT_STATUS: '/api/payment/status',
-  PHOTOS: '/api/photos',
-  TEMPLATES: '/api/templates',
-  FILTERS: '/api/filters',
-  DELIVERY_WHATSAPP: '/api/delivery/whatsapp',
-  DELIVERY_PRINT: '/api/delivery/print',
+  PACKAGES: "/api/packages",
+  SESSIONS: "/api/sessions",
+  PAYMENT_CREATE: "/api/payment/create",
+  PAYMENT_VERIFY: "/api/payment/verify",
+  PAYMENT_STATUS: "/api/payment/status",
+  PHOTOS: "/api/photos",
+  TEMPLATES: "/api/templates",
+  FILTERS: "/api/filters",
+  DELIVERY_WHATSAPP: "/api/delivery/whatsapp",
+  DELIVERY_PRINT: "/api/delivery/print",
 
   // Admin endpoints
-  ADMIN_LOGIN: '/api/admin/login',
-  ADMIN_PACKAGES: '/api/admin/packages',
-  ADMIN_TEMPLATES: '/api/admin/templates',
-  ADMIN_FILTERS: '/api/admin/filters',
-  ADMIN_ANALYTICS: '/api/admin/analytics',
-  ADMIN_TRANSACTIONS: '/api/admin/transactions',
-  ADMIN_SETTINGS: '/api/admin/settings',
-  ADMIN_BACKUP: '/api/admin/backup',
+  ADMIN_LOGIN: "/api/admin/login",
+  ADMIN_PACKAGES: "/api/admin/packages",
+  ADMIN_TEMPLATES: "/api/admin/templates",
+  ADMIN_FILTERS: "/api/admin/filters",
+  ADMIN_ANALYTICS: "/api/admin/analytics",
+  ADMIN_TRANSACTIONS: "/api/admin/transactions",
+  ADMIN_SETTINGS: "/api/admin/settings",
+  ADMIN_BACKUP: "/api/admin/backup",
 
   // SSE endpoints
-  EVENTS_PAYMENT: '/events/payment',
-  EVENTS_CAMERA: '/events/camera',
+  EVENTS_PAYMENT: "/events/payment",
+  EVENTS_CAMERA: "/events/camera",
 
   // Bridge endpoints
-  CAMERA_CAPTURE: '/camera/capture',
-  CAMERA_STATUS: '/camera/status',
-  CAMERA_PREVIEW: '/camera/preview',
-  CAMERA_CONFIGURE: '/camera/configure',
-  CAMERA_DETECT: '/camera/detect',
-  CAMERA_HEALTH: '/health',
+  CAMERA_CAPTURE: "/camera/capture",
+  CAMERA_STATUS: "/camera/status",
+  CAMERA_PREVIEW: "/camera/preview",
+  CAMERA_CONFIGURE: "/camera/configure",
+  CAMERA_DETECT: "/camera/detect",
+  CAMERA_HEALTH: "/health",
 } as const;
 
 // ============================================================================
@@ -61,8 +61,8 @@ export const API_ENDPOINTS = {
 
 export const APP_CONFIG = {
   // Application name
-  APP_NAME: 'Photonic V0.1',
-  APP_VERSION: '0.1.0',
+  APP_NAME: "Photonic V0.1",
+  APP_VERSION: "0.1.0",
 
   // Timeouts
   PAYMENT_TIMEOUT_MINUTES: 5,
@@ -98,12 +98,11 @@ export const APP_CONFIG = {
   BACKUP_RETENTION_DAYS: 90,
 
   // Currency
-  DEFAULT_CURRENCY: 'IDR',
+  DEFAULT_CURRENCY: "IDR",
 
   // Admin
-  DEFAULT_ADMIN_PASSWORD: 'changeme123',
+  DEFAULT_ADMIN_PASSWORD: "changeme123",
   JWT_EXPIRY_HOURS: 24,
-
 } as const;
 
 // ============================================================================
@@ -112,20 +111,20 @@ export const APP_CONFIG = {
 
 export const FILE_PATHS = {
   // Database
-  DATABASE: './data/photobooth.db',
+  DATABASE: "./data/photobooth.db",
 
   // Storage directories
-  DATA_DIR: './data',
-  PHOTOS_DIR: './data/photos',
-  TEMPLATES_DIR: './data/templates',
-  PROCESSED_DIR: './data/processed',
-  BACKUPS_DIR: './data/backups',
-  TEMP_DIR: './temp',
+  DATA_DIR: "./data",
+  PHOTOS_DIR: "./data/photos",
+  TEMPLATES_DIR: "./data/templates",
+  PROCESSED_DIR: "./data/processed",
+  BACKUPS_DIR: "./data/backups",
+  TEMP_DIR: "./temp",
 
   // Log files
-  LOGS_DIR: './logs',
-  ERROR_LOG: './logs/error.log',
-  COMBINED_LOG: './logs/combined.log',
+  LOGS_DIR: "./logs",
+  ERROR_LOG: "./logs/error.log",
+  COMBINED_LOG: "./logs/combined.log",
 } as const;
 
 // ============================================================================
@@ -134,38 +133,38 @@ export const FILE_PATHS = {
 
 export const ENV_KEYS = {
   // Node environment
-  NODE_ENV: 'NODE_ENV',
+  NODE_ENV: "NODE_ENV",
 
   // Backend
-  BACKEND_PORT: 'PORT',
-  DATABASE_PATH: 'DATABASE_PATH',
-  BRIDGE_SERVICE_URL: 'BRIDGE_SERVICE_URL',
+  BACKEND_PORT: "PORT",
+  DATABASE_PATH: "DATABASE_PATH",
+  BRIDGE_SERVICE_URL: "BRIDGE_SERVICE_URL",
 
   // Bridge
-  BRIDGE_PORT: 'PORT',
-  TEMP_PHOTO_PATH: 'TEMP_PHOTO_PATH',
-  CAMERA_TIMEOUT: 'CAMERA_TIMEOUT',
-  MOCK_CAMERA: 'MOCK_CAMERA',
-  USE_WEBCAM: 'USE_WEBCAM',
+  BRIDGE_PORT: "PORT",
+  TEMP_PHOTO_PATH: "TEMP_PHOTO_PATH",
+  CAMERA_TIMEOUT: "CAMERA_TIMEOUT",
+  MOCK_CAMERA: "MOCK_CAMERA",
+  USE_WEBCAM: "USE_WEBCAM",
 
   // Frontend
-  VITE_API_URL: 'VITE_API_URL',
-  VITE_BRIDGE_URL: 'VITE_BRIDGE_URL',
+  VITE_API_URL: "VITE_API_URL",
+  VITE_BRIDGE_URL: "VITE_BRIDGE_URL",
 
   // Payment Provider
-  PAYMENT_PROVIDER: 'PAYMENT_PROVIDER',
-  
+  PAYMENT_PROVIDER: "PAYMENT_PROVIDER",
+
   // Midtrans
-  MIDTRANS_SERVER_KEY: 'MIDTRANS_SERVER_KEY',
-  MIDTRANS_CLIENT_KEY: 'MIDTRANS_CLIENT_KEY',
-  MIDTRANS_ENVIRONMENT: 'MIDTRANS_ENVIRONMENT',
+  MIDTRANS_SERVER_KEY: "MIDTRANS_SERVER_KEY",
+  MIDTRANS_CLIENT_KEY: "MIDTRANS_CLIENT_KEY",
+  MIDTRANS_ENVIRONMENT: "MIDTRANS_ENVIRONMENT",
 
   // WhatsApp
-  WHATSAPP_PROVIDER: 'WHATSAPP_PROVIDER',
-  WHATSAPP_API_KEY: 'WHATSAPP_API_KEY',
+  WHATSAPP_PROVIDER: "WHATSAPP_PROVIDER",
+  WHATSAPP_API_KEY: "WHATSAPP_API_KEY",
 
   // Development
-  DEV_MODE: 'DEV_MODE',
+  DEV_MODE: "DEV_MODE",
 } as const;
 
 // ============================================================================
@@ -192,47 +191,47 @@ export const HTTP_STATUS = {
 
 export const ERROR_MESSAGES = {
   // Generic
-  INTERNAL_ERROR: 'An internal error occurred',
-  NOT_FOUND: 'Resource not found',
-  VALIDATION_ERROR: 'Validation failed',
-  UNAUTHORIZED: 'Unauthorized access',
+  INTERNAL_ERROR: "An internal error occurred",
+  NOT_FOUND: "Resource not found",
+  VALIDATION_ERROR: "Validation failed",
+  UNAUTHORIZED: "Unauthorized access",
 
   // Session
-  SESSION_NOT_FOUND: 'Session not found',
-  SESSION_EXPIRED: 'Session has expired',
-  SESSION_ALREADY_PAID: 'Session has already been paid',
-  INVALID_SESSION_STATUS: 'Invalid session status',
+  SESSION_NOT_FOUND: "Session not found",
+  SESSION_EXPIRED: "Session has expired",
+  SESSION_ALREADY_PAID: "Session has already been paid",
+  INVALID_SESSION_STATUS: "Invalid session status",
 
   // Payment
-  PAYMENT_NOT_FOUND: 'Payment not found',
-  PAYMENT_EXPIRED: 'Payment has expired',
-  PAYMENT_FAILED: 'Payment failed',
-  PAYMENT_TIMEOUT: 'Payment timeout',
+  PAYMENT_NOT_FOUND: "Payment not found",
+  PAYMENT_EXPIRED: "Payment has expired",
+  PAYMENT_FAILED: "Payment failed",
+  PAYMENT_TIMEOUT: "Payment timeout",
 
   // Camera
-  CAMERA_NOT_CONNECTED: 'Camera not connected',
-  CAMERA_ERROR: 'Camera error occurred',
-  CAPTURE_FAILED: 'Photo capture failed',
+  CAMERA_NOT_CONNECTED: "Camera not connected",
+  CAMERA_ERROR: "Camera error occurred",
+  CAPTURE_FAILED: "Photo capture failed",
 
   // Photo
-  PHOTO_NOT_FOUND: 'Photo not found',
-  PROCESSING_FAILED: 'Photo processing failed',
+  PHOTO_NOT_FOUND: "Photo not found",
+  PROCESSING_FAILED: "Photo processing failed",
 
   // Template
-  TEMPLATE_NOT_FOUND: 'Template not found',
-  INVALID_TEMPLATE_FILE: 'Invalid template file',
+  TEMPLATE_NOT_FOUND: "Template not found",
+  INVALID_TEMPLATE_FILE: "Invalid template file",
 
   // Admin
-  INVALID_PASSWORD: 'Invalid password',
-  INVALID_TOKEN: 'Invalid or expired token',
+  INVALID_PASSWORD: "Invalid password",
+  INVALID_TOKEN: "Invalid or expired token",
 
   // WhatsApp
-  WHATSAPP_DELIVERY_FAILED: 'WhatsApp delivery failed',
-  INVALID_PHONE_NUMBER: 'Invalid phone number',
+  WHATSAPP_DELIVERY_FAILED: "WhatsApp delivery failed",
+  INVALID_PHONE_NUMBER: "Invalid phone number",
 
   // Printer
-  PRINTER_ERROR: 'Printer error occurred',
-  PRINT_QUEUE_FULL: 'Print queue is full',
+  PRINTER_ERROR: "Printer error occurred",
+  PRINT_QUEUE_FULL: "Print queue is full",
 } as const;
 
 // ============================================================================
@@ -240,22 +239,22 @@ export const ERROR_MESSAGES = {
 // ============================================================================
 
 export const SUCCESS_MESSAGES = {
-  SESSION_CREATED: 'Session created successfully',
-  PAYMENT_CREATED: 'Payment created successfully',
-  PAYMENT_VERIFIED: 'Payment verified successfully',
-  PHOTO_CAPTURED: 'Photo captured successfully',
-  PHOTO_PROCESSED: 'Photo processed successfully',
-  WHATSAPP_SENT: 'Photo sent via WhatsApp',
-  PRINT_QUEUED: 'Photo queued for printing',
-  ADMIN_LOGIN_SUCCESS: 'Login successful',
-  PACKAGE_CREATED: 'Package created successfully',
-  PACKAGE_UPDATED: 'Package updated successfully',
-  PACKAGE_DELETED: 'Package deleted successfully',
-  TEMPLATE_UPLOADED: 'Template uploaded successfully',
-  TEMPLATE_UPDATED: 'Template updated successfully',
-  TEMPLATE_DELETED: 'Template deleted successfully',
-  SETTINGS_UPDATED: 'Settings updated successfully',
-  BACKUP_CREATED: 'Backup created successfully',
+  SESSION_CREATED: "Session created successfully",
+  PAYMENT_CREATED: "Payment created successfully",
+  PAYMENT_VERIFIED: "Payment verified successfully",
+  PHOTO_CAPTURED: "Photo captured successfully",
+  PHOTO_PROCESSED: "Photo processed successfully",
+  WHATSAPP_SENT: "Photo sent via WhatsApp",
+  PRINT_QUEUED: "Photo queued for printing",
+  ADMIN_LOGIN_SUCCESS: "Login successful",
+  PACKAGE_CREATED: "Package created successfully",
+  PACKAGE_UPDATED: "Package updated successfully",
+  PACKAGE_DELETED: "Package deleted successfully",
+  TEMPLATE_UPLOADED: "Template uploaded successfully",
+  TEMPLATE_UPDATED: "Template updated successfully",
+  TEMPLATE_DELETED: "Template deleted successfully",
+  SETTINGS_UPDATED: "Settings updated successfully",
+  BACKUP_CREATED: "Backup created successfully",
 } as const;
 
 // ============================================================================
@@ -264,22 +263,22 @@ export const SUCCESS_MESSAGES = {
 
 export const CAMERA_PRESETS = {
   PORTRAIT: {
-    iso: '200',
-    aperture: 'f/2.8',
-    shutterSpeed: '1/125',
-    whiteBalance: 'auto',
+    iso: "200",
+    aperture: "f/2.8",
+    shutterSpeed: "1/125",
+    whiteBalance: "auto",
   },
   INDOOR: {
-    iso: '800',
-    aperture: 'f/4',
-    shutterSpeed: '1/60',
-    whiteBalance: 'tungsten',
+    iso: "800",
+    aperture: "f/4",
+    shutterSpeed: "1/60",
+    whiteBalance: "tungsten",
   },
   OUTDOOR: {
-    iso: '100',
-    aperture: 'f/8',
-    shutterSpeed: '1/250',
-    whiteBalance: 'daylight',
+    iso: "100",
+    aperture: "f/8",
+    shutterSpeed: "1/250",
+    whiteBalance: "daylight",
   },
 } as const;
 
@@ -289,19 +288,19 @@ export const CAMERA_PRESETS = {
 
 export const FILTER_PRESETS = {
   NONE: {
-    name: 'None',
+    name: "None",
     config: {},
   },
   BW: {
-    name: 'Black & White',
+    name: "Black & White",
     config: { grayscale: true },
   },
   SEPIA: {
-    name: 'Sepia',
+    name: "Sepia",
     config: { sepia: true },
   },
   VINTAGE: {
-    name: 'Vintage',
+    name: "Vintage",
     config: {
       sepia: true,
       contrast: 1.2,
@@ -309,14 +308,14 @@ export const FILTER_PRESETS = {
     },
   },
   VIVID: {
-    name: 'Vivid',
+    name: "Vivid",
     config: {
       saturation: 1.3,
       contrast: 1.1,
     },
   },
   SOFT: {
-    name: 'Soft',
+    name: "Soft",
     config: {
       blur: 0.5,
       brightness: 1.1,
@@ -344,9 +343,8 @@ export const VALIDATION = {
   MAX_TEMPLATE_NAME_LENGTH: 100,
 
   // File uploads
-  ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/jpg', 'image/png'],
-  ALLOWED_TEMPLATE_TYPES: ['image/png'],
-
+  ALLOWED_IMAGE_TYPES: ["image/jpeg", "image/jpg", "image/png"],
+  ALLOWED_TEMPLATE_TYPES: ["image/png"],
 } as const;
 
 // ============================================================================
@@ -371,14 +369,14 @@ export function getBridgeUrl(endpoint: string): string {
  * Check if environment is production
  */
 export function isProduction(): boolean {
-  return process.env.NODE_ENV === 'production';
+  return process.env.NODE_ENV === "production";
 }
 
 /**
  * Check if environment is development
  */
 export function isDevelopment(): boolean {
-  return process.env.NODE_ENV === 'development';
+  return process.env.NODE_ENV === "development";
 }
 
 // ============================================================================
@@ -412,5 +410,5 @@ export {
   getPrinterMediaOption,
   isLandscape,
   getOrientation,
-} from './paper-sizes';
-export type { PaperSize, PaperSizeConfig } from './paper-sizes';
+} from "./paper-sizes.js";
+export type { PaperSize, PaperSizeConfig } from "./paper-sizes.js";
