@@ -55,7 +55,7 @@ export async function createApp() {
   await app.register(fastifyStatic, {
     root: dataDir,
     prefix: "/data/",
-    decorateReply: true,
+    decorateReply: true, // Only this one needs sendFile for filter thumbnails
   });
 
   // Serve admin-web static files at /admin
@@ -86,7 +86,7 @@ export async function createApp() {
     await app.register(fastifyStatic, {
       root: frontendDir,
       prefix: "/",
-      decorateReply: true,
+      decorateReply: false, // Data static already decorated sendFile
     });
     logger.info("Frontend SPA served at /");
   }
@@ -119,10 +119,9 @@ export async function createApp() {
   app.get("/", async (request, reply) => {
     const indexPath = path.join(process.cwd(), "../frontend/dist/index.html");
     if (fs.existsSync(indexPath)) {
-      return reply.sendFile(
-        "index.html",
-        path.join(process.cwd(), "../frontend/dist"),
-      );
+      const content = fs.readFileSync(indexPath, "utf-8");
+      reply.header("Content-Type", "text/html");
+      return reply.send(content);
     }
     return {
       name: "Photonic V0.1 API",
@@ -162,10 +161,9 @@ export async function createApp() {
         statusCode: 404,
       });
     } else if (fs.existsSync(frontendIndex)) {
-      reply.sendFile(
-        "index.html",
-        path.join(process.cwd(), "../frontend/dist"),
-      );
+      const content = fs.readFileSync(frontendIndex, "utf-8");
+      reply.header("Content-Type", "text/html");
+      return reply.send(content);
     } else {
       reply.status(404).send({
         error: "Not Found",
