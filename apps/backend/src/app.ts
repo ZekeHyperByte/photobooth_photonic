@@ -70,7 +70,7 @@ export async function createApp() {
   }
 
   // Serve frame-designer static files at /frame-designer
-  const frameDesignerDir = path.join(process.cwd(), "../frame-designer/dist");
+  const frameDesignerDir = path.join(process.cwd(), "../frame-manager/dist");
   if (fs.existsSync(frameDesignerDir)) {
     await app.register(fastifyStatic, {
       root: frameDesignerDir,
