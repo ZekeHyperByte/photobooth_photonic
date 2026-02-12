@@ -56,7 +56,7 @@ const MirrorSelectionScreen: React.FC = () => {
     if (!cameraMode) return;
 
     // For DSLR modes, we don't need to initialize webcam stream
-    if (cameraMode === 'dslr-webserver' || cameraMode === 'dslr-cli') {
+    if (cameraMode === 'dslr') {
       devLog('[MirrorSelection] Using DSLR mode, skipping webcam initialization');
       setIsLoading(false);
       return;

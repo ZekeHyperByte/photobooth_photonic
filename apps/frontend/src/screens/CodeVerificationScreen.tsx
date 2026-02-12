@@ -23,7 +23,7 @@ const CodeVerificationScreen: React.FC = () => {
   };
 
   const handleBack = () => {
-    setScreen('payment-method');
+    setScreen('idle');
   };
 
   const handleVerify = async () => {
@@ -51,7 +51,7 @@ const CodeVerificationScreen: React.FC = () => {
       // Clear photos from previous session
       resetPhotos();
 
-      // Navigate to session notice screen
+      // Navigate to frame selection
       setScreen('session-notice');
     } catch (err) {
       console.error('Code verification failed:', err);

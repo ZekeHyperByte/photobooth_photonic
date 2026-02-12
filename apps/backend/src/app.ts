@@ -80,6 +80,17 @@ export async function createApp() {
     logger.info('Frame designer enabled at /frame-designer');
   }
 
+  // Serve frontend SPA at root (must be registered LAST among static plugins)
+  const frontendDir = path.join(process.cwd(), '../frontend/dist');
+  if (fs.existsSync(frontendDir)) {
+    await app.register(fastifyStatic, {
+      root: frontendDir,
+      prefix: '/',
+      decorateReply: false,
+    });
+    logger.info('Frontend SPA served at /');
+  }
+
   // Register routes
   await app.register(codeRoutes);
   await app.register(filterRoutes);
@@ -104,13 +115,17 @@ export async function createApp() {
     };
   });
 
-  // Root endpoint
-  app.get('/', async () => {
+  // Root endpoint: serve SPA index.html if frontend is built, otherwise API info
+  app.get('/', async (request, reply) => {
+    const indexPath = path.join(process.cwd(), '../frontend/dist/index.html');
+    if (fs.existsSync(indexPath)) {
+      return reply.sendFile('index.html', path.join(process.cwd(), '../frontend/dist'));
+    }
     return {
       name: 'Photonic V0.1 API',
       version: '0.1.0',
       status: 'running',
-      docs: '/docs',
+      hint: 'Build frontend with: cd apps/frontend && pnpm build',
     };
   });
 
@@ -130,13 +145,24 @@ export async function createApp() {
     });
   });
 
-  // Not found handler
+  // Not found handler: SPA fallback for non-API routes
+  const frontendIndex = path.join(process.cwd(), '../frontend/dist/index.html');
   app.setNotFoundHandler((request, reply) => {
-    reply.status(404).send({
-      error: 'Not Found',
-      message: `Route ${request.method} ${request.url} not found`,
-      statusCode: 404,
-    });
+    if (request.url.startsWith('/api/') || request.url.startsWith('/data/') || request.url.startsWith('/health')) {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: `Route ${request.method} ${request.url} not found`,
+        statusCode: 404,
+      });
+    } else if (fs.existsSync(frontendIndex)) {
+      reply.sendFile('index.html', path.join(process.cwd(), '../frontend/dist'));
+    } else {
+      reply.status(404).send({
+        error: 'Not Found',
+        message: `Route ${request.method} ${request.url} not found`,
+        statusCode: 404,
+      });
+    }
   });
 
   return app;

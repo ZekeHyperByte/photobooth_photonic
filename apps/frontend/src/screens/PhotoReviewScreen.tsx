@@ -76,7 +76,7 @@ const PhotoReviewScreen: React.FC = () => {
   };
 
   const handleContinue = () => {
-    setScreen('filter-selection');
+    setScreen('processing');
   };
 
   return (

@@ -87,7 +87,7 @@ const CaptureScreen: React.FC = () => {
           setCameraMode(data.data.mode);
           devLog('[CaptureScreen] Camera mode:', data.data.mode);
           // For DSLR modes, camera is always ready
-          if (data.data.mode === 'dslr-webserver' || data.data.mode === 'dslr-cli') {
+          if (data.data.mode === 'dslr') {
             setWebcamReady(true);
           }
         }

@@ -1,12 +1,9 @@
-import axios from 'axios';
+import { apiClient } from './api';
 
 /**
  * Code Service
  * Handles booth code verification
  */
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
-
 export const codeService = {
   /**
    * Verify a 4-digit booth code
@@ -14,7 +11,7 @@ export const codeService = {
    */
   verify: async (code: string): Promise<{ valid: boolean }> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/codes/verify`, {
+      const response = await apiClient.post('/api/codes/verify', {
         code,
       });
 

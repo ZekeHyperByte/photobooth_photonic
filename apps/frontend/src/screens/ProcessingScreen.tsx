@@ -4,6 +4,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import { usePhotoStore } from '../stores/photoStore';
 import { Spinner } from '../components/ui/Spinner';
 import { photoService } from '../services/photoService';
+import { deliveryService } from '../services/deliveryService';
 
 const ProcessingScreen: React.FC = () => {
   const { setScreen, showToast } = useUIStore();
@@ -64,6 +65,16 @@ const ProcessingScreen: React.FC = () => {
         });
       }
 
+      // Auto-print the composite
+      setStatusMessage('Mencetak foto...');
+      setProgress(85);
+
+      try {
+        await deliveryService.queuePrint(compositePhoto.id, 1);
+      } catch (printError) {
+        console.error('Auto-print failed:', printError);
+      }
+
       setStatusMessage('Selesai!');
       setProgress(100);
 
@@ -78,9 +89,9 @@ const ProcessingScreen: React.FC = () => {
         message: 'Gagal memproses foto. Silakan coba lagi.',
       });
 
-      // Go back to filter selection on error
+      // Go back to photo review on error
       setTimeout(() => {
-        setScreen('filter-selection');
+        setScreen('photo-review');
       }, 3000);
     }
   };

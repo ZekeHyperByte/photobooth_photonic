@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useUIStore } from '../stores/uiStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { usePhotoStore } from '../stores/photoStore';
-import { useIpc } from '../hooks/useIpc';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { NumPad } from '../components/ui/NumPad';
@@ -13,8 +12,6 @@ const DeliveryScreen: React.FC = () => {
   const { showToast, resetToIdle } = useUIStore();
   const { session, resetSession } = useSessionStore();
   const { photos, resetPhotos } = usePhotoStore();
-  const { print, isElectron } = useIpc();
-
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [whatsappSuccess, setWhatsappSuccess] = useState(false);
@@ -76,11 +73,6 @@ const DeliveryScreen: React.FC = () => {
 
           // Queue print job in backend
           await deliveryService.queuePrint(compositePhoto.id, 1);
-
-          // If Electron is available, also trigger local print
-          if (isElectron && compositePhoto.processedPath) {
-            await print(compositePhoto.processedPath, 1);
-          }
 
           setPrintSuccess(true);
 

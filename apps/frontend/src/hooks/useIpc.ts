@@ -1,47 +1,23 @@
+import { deliveryService } from '../services/deliveryService';
+
 export const useIpc = () => {
-  const print = async (imagePath: string, copies: number = 1) => {
-    if (!window.electron) {
-      throw new Error('Electron IPC not available. Running in browser mode.');
-    }
-    return window.electron.print(imagePath, copies);
+  const print = async (photoId: string, copies: number = 1) => {
+    return deliveryService.queuePrint(photoId, copies);
   };
 
-  const saveFile = async (imagePath: string, defaultPath: string) => {
-    if (!window.electron) {
-      throw new Error('Electron IPC not available. Running in browser mode.');
-    }
-    return window.electron.saveFile(imagePath, defaultPath);
-  };
+  const saveFile = async () => null;
 
   const exitKiosk = async () => {
-    if (!window.electron) {
-      console.warn('Electron IPC not available. Cannot exit kiosk mode.');
-      return;
-    }
-    return window.electron.exitKiosk();
+    console.warn('exitKiosk: use systemctl or kill chromium');
   };
 
   const restartApp = async () => {
-    if (!window.electron) {
-      console.warn('Electron IPC not available. Cannot restart app.');
-      return;
-    }
-    return window.electron.restartApp();
+    window.location.reload();
   };
 
   const getSystemInfo = async () => {
-    if (!window.electron) {
-      return { platform: 'web', version: '0.1.0' };
-    }
-    return window.electron.getSystemInfo();
+    return { platform: 'linux', version: '0.1.0' };
   };
 
-  return {
-    print,
-    saveFile,
-    exitKiosk,
-    restartApp,
-    getSystemInfo,
-    isElectron: !!window.electron,
-  };
+  return { print, saveFile, exitKiosk, restartApp, getSystemInfo, isElectron: false };
 };

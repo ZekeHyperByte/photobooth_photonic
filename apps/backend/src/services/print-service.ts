@@ -6,15 +6,11 @@ import { logger } from '@photonic/utils';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs';
-import os from 'os';
 import type { QueuePrintRequest, PaperSize } from '@photonic/types';
 
 const execAsync = promisify(exec);
 
-// Platform detection
-const isWindows = os.platform() === 'win32';
-
-// CUPS media options for paper sizes (Linux)
+// CUPS media options for paper sizes
 const CUPS_MEDIA_OPTIONS: Record<string, string> = {
   A3: 'A3',
   A4: 'A4',
@@ -66,27 +62,12 @@ export class PrintService {
    */
   async detectDefaultPrinter(): Promise<string | null> {
     try {
-      if (isWindows) {
-        // Windows: Use PowerShell to get default printer
-        const { stdout } = await execAsync(
-          'powershell -Command "(Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE Default=$true\\").Name"',
-          { timeout: 10000 }
-        );
-        const printerName = stdout.trim();
-        if (printerName) {
-          this.defaultPrinter = printerName;
-          logger.info('Default printer detected (Windows)', { printer: this.defaultPrinter });
-          return this.defaultPrinter;
-        }
-      } else {
-        // Linux: Use CUPS lpstat
-        const { stdout } = await execAsync('lpstat -d 2>/dev/null || echo "no default"');
-        const match = stdout.match(/system default destination: (.+)/);
-        if (match) {
-          this.defaultPrinter = match[1].trim();
-          logger.info('Default printer detected (CUPS)', { printer: this.defaultPrinter });
-          return this.defaultPrinter;
-        }
+      const { stdout } = await execAsync('lpstat -d 2>/dev/null || echo "no default"');
+      const match = stdout.match(/system default destination: (.+)/);
+      if (match) {
+        this.defaultPrinter = match[1].trim();
+        logger.info('Default printer detected (CUPS)', { printer: this.defaultPrinter });
+        return this.defaultPrinter;
       }
     } catch (error) {
       logger.warn('Failed to detect default printer', { error });
@@ -101,43 +82,17 @@ export class PrintService {
     try {
       const printers: Array<{ name: string; status: string; isDefault: boolean }> = [];
 
-      if (isWindows) {
-        // Windows: Use PowerShell to list printers
-        const { stdout } = await execAsync(
-          'powershell -Command "Get-WmiObject -Query \\"SELECT Name,PrinterStatus,Default FROM Win32_Printer\\" | ConvertTo-Json"',
-          { timeout: 10000 }
-        );
+      const { stdout } = await execAsync('lpstat -p 2>/dev/null || echo ""');
 
-        try {
-          const parsed = JSON.parse(stdout);
-          const printerList = Array.isArray(parsed) ? parsed : [parsed];
-
-          for (const p of printerList) {
-            if (p && p.Name) {
-              printers.push({
-                name: p.Name,
-                status: p.PrinterStatus === 3 ? 'idle' : 'unknown',
-                isDefault: p.Default === true,
-              });
-            }
-          }
-        } catch (parseError) {
-          logger.warn('Failed to parse printer list', { parseError });
-        }
-      } else {
-        // Linux: Use CUPS lpstat
-        const { stdout } = await execAsync('lpstat -p 2>/dev/null || echo ""');
-
-        const lines = stdout.split('\n').filter((line) => line.startsWith('printer'));
-        for (const line of lines) {
-          const match = line.match(/printer (\S+) (.+)/);
-          if (match) {
-            printers.push({
-              name: match[1],
-              status: match[2].includes('idle') ? 'idle' : match[2].includes('enabled') ? 'enabled' : 'unknown',
-              isDefault: match[1] === this.defaultPrinter,
-            });
-          }
+      const lines = stdout.split('\n').filter((line) => line.startsWith('printer'));
+      for (const line of lines) {
+        const match = line.match(/printer (\S+) (.+)/);
+        if (match) {
+          printers.push({
+            name: match[1],
+            status: match[2].includes('idle') ? 'idle' : match[2].includes('enabled') ? 'enabled' : 'unknown',
+            isDefault: match[1] === this.defaultPrinter,
+          });
         }
       }
 
@@ -274,18 +229,14 @@ export class PrintService {
         .set({ status: 'printing' } as any)
         .where(eq(printQueue.id, id));
 
-      logger.info('Printing job', { id, photoPath, copies, paperSize, platform: isWindows ? 'Windows' : 'Linux' });
+      logger.info('Printing job', { id, photoPath, copies, paperSize });
 
       // Verify file still exists
       if (!fs.existsSync(photoPath)) {
         throw new Error(`Photo file not found: ${photoPath}`);
       }
 
-      if (isWindows) {
-        await this.printJobWindows(photoPath, copies, paperSize);
-      } else {
-        await this.printJobLinux(photoPath, copies, paperSize);
-      }
+      await this.printJobLinux(photoPath, copies, paperSize);
 
       // Update status to completed
       await db
@@ -335,32 +286,6 @@ export class PrintService {
   }
 
   /**
-   * Print job on Windows using PowerShell
-   */
-  private async printJobWindows(photoPath: string, copies: number, paperSize: string): Promise<void> {
-    const printerArg = this.defaultPrinter ? `-PrinterName "${this.defaultPrinter}"` : '';
-
-    // Print each copy using PowerShell Start-Process with Print verb
-    for (let i = 0; i < copies; i++) {
-      // Method 1: Use Start-Process with Print verb (works for images)
-      const psCommand = `powershell -Command "Start-Process -FilePath '${photoPath.replace(/'/g, "''")}' -Verb Print ${printerArg ? `-ArgumentList '${this.defaultPrinter}'` : ''} -Wait"`;
-
-      logger.info('Executing Windows print command', { command: psCommand, copy: i + 1 });
-
-      try {
-        await execAsync(psCommand, { timeout: 60000 });
-      } catch (error: any) {
-        // Try alternative method using mspaint
-        logger.warn('Start-Process print failed, trying mspaint method');
-        const altCommand = `mspaint /p "${photoPath}"`;
-        await execAsync(altCommand, { timeout: 60000 });
-      }
-    }
-
-    logger.info('Windows print job sent', { copies, printer: this.defaultPrinter });
-  }
-
-  /**
    * Print job on Linux using CUPS
    */
   private async printJobLinux(photoPath: string, copies: number, paperSize: string): Promise<void> {
@@ -406,36 +331,19 @@ export class PrintService {
       const copies = options?.copies || 1;
       const paperSize = options?.paperSize || 'A3';
 
-      if (isWindows) {
-        // Windows: Use PowerShell
-        for (let i = 0; i < copies; i++) {
-          const psCommand = printer
-            ? `powershell -Command "Start-Process -FilePath '${filePath.replace(/'/g, "''")}' -Verb Print -Wait"`
-            : `powershell -Command "Start-Process -FilePath '${filePath.replace(/'/g, "''")}' -Verb Print -Wait"`;
+      const printerArg = printer ? `-d "${printer}"` : '';
+      const mediaOption = CUPS_MEDIA_OPTIONS[paperSize] || paperSize;
 
-          await execAsync(psCommand, { timeout: 60000 });
-        }
+      const lpCommand = `lp ${printerArg} -o media=${mediaOption} -o fit-to-page -o print-quality=5 -n ${copies} "${filePath}"`;
 
-        return {
-          success: true,
-          message: `Printed ${copies} copy(ies) to ${printer || 'default printer'}`,
-        };
-      } else {
-        // Linux: Use CUPS
-        const printerArg = printer ? `-d "${printer}"` : '';
-        const mediaOption = CUPS_MEDIA_OPTIONS[paperSize] || paperSize;
+      logger.info('Direct print command', { command: lpCommand });
 
-        const lpCommand = `lp ${printerArg} -o media=${mediaOption} -o fit-to-page -o print-quality=5 -n ${copies} "${filePath}"`;
+      const { stdout } = await execAsync(lpCommand, { timeout: 30000 });
 
-        logger.info('Direct print command', { command: lpCommand });
-
-        const { stdout } = await execAsync(lpCommand, { timeout: 30000 });
-
-        return {
-          success: true,
-          message: stdout.trim(),
-        };
-      }
+      return {
+        success: true,
+        message: stdout.trim(),
+      };
     } catch (error: any) {
       logger.error('Direct print failed', { error: error.message });
       return {

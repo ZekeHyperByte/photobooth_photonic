@@ -55,7 +55,7 @@ export const DSLRPreview = memo(function DSLRPreview({ onReady, onError, mirrore
         >
           <p>Failed to load DSLR preview</p>
           <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
-            Make sure DigiCamControl webserver is running
+            Make sure the camera is connected
           </p>
         </div>
       )}
