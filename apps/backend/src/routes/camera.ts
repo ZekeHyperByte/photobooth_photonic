@@ -90,8 +90,7 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         const previewManager = getPreviewStreamManager();
         if (previewManager.clientCount > 0) {
           logger.info('Stopping preview stream for capture...');
-          previewManager.stopAll();
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await previewManager.stopAll();
         }
 
         // Capture photo

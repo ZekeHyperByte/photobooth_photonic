@@ -16,7 +16,8 @@ interface Client {
 class PreviewStreamManager {
   private clients: Map<string, Client> = new Map();
   private loopRunning = false;
-  private loopAbort: AbortController | null = null;
+  private loopStoppedResolve: (() => void) | null = null;
+  private loopStopped: Promise<void> | null = null;
 
   addClient(res: ServerResponse): string {
     const id = nanoid();
@@ -39,8 +40,8 @@ class PreviewStreamManager {
     }
   }
 
-  stopAll(): void {
-    this.stopLoop();
+  async stopAll(): Promise<void> {
+    this.loopRunning = false;
     for (const [id, client] of this.clients) {
       try {
         client.res.end();
@@ -49,6 +50,9 @@ class PreviewStreamManager {
       }
     }
     this.clients.clear();
+    if (this.loopStopped) {
+      await this.loopStopped;
+    }
     logger.info('All preview clients stopped');
   }
 
@@ -60,7 +64,9 @@ class PreviewStreamManager {
     if (this.loopRunning) return;
 
     this.loopRunning = true;
-    this.loopAbort = new AbortController();
+    this.loopStopped = new Promise(resolve => {
+      this.loopStoppedResolve = resolve;
+    });
     const cameraService = getCameraService();
     cameraService.setStreaming(true);
 
@@ -81,21 +87,23 @@ class PreviewStreamManager {
       this.loopRunning = false;
       cameraService.setStreaming(false);
       logger.info('Preview loop ended');
+      this.loopStoppedResolve?.();
+      this.loopStopped = null;
+      this.loopStoppedResolve = null;
     };
 
     run().catch(err => {
       logger.error('Preview loop crashed:', err);
       this.loopRunning = false;
       cameraService.setStreaming(false);
+      this.loopStoppedResolve?.();
+      this.loopStopped = null;
+      this.loopStoppedResolve = null;
     });
   }
 
   private stopLoop(): void {
     this.loopRunning = false;
-    if (this.loopAbort) {
-      this.loopAbort.abort();
-      this.loopAbort = null;
-    }
   }
 
   private broadcastFrame(frame: Buffer): void {
