@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getCameraService } from '../services/camera-service';
+import { getPreviewStreamManager } from '../services/preview-stream-manager';
 import { createLogger } from '@photonic/utils';
 import { HTTP_STATUS } from '@photonic/config';
 import type {
@@ -14,6 +15,50 @@ const logger = createLogger('camera-routes');
  * Handles camera capture, status, and configuration
  */
 export async function cameraRoutes(fastify: FastifyInstance) {
+  /**
+   * GET /api/camera/preview
+   * MJPEG stream for live camera preview
+   */
+  fastify.get(
+    '/api/camera/preview',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const cameraService = getCameraService();
+
+        if (!cameraService.isConnected()) {
+          await cameraService.initialize();
+        }
+
+        const res = reply.raw;
+        res.writeHead(200, {
+          'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        });
+
+        const previewManager = getPreviewStreamManager();
+        const clientId = previewManager.addClient(res);
+
+        request.raw.on('close', () => {
+          previewManager.removeClient(clientId);
+        });
+
+        // Prevent Fastify from sending its own response
+        reply.hijack();
+      } catch (error: any) {
+        logger.error('Preview stream failed:', error);
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          error: 'Preview Failed',
+          message: error.message,
+        });
+      }
+    }
+  );
+
   /**
    * POST /api/camera/capture
    * Trigger photo capture
@@ -39,6 +84,14 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         // Initialize camera if not already done
         if (!cameraService.isConnected()) {
           await cameraService.initialize();
+        }
+
+        // Stop preview stream before capture (gphoto2 is single-threaded over USB)
+        const previewManager = getPreviewStreamManager();
+        if (previewManager.clientCount > 0) {
+          logger.info('Stopping preview stream for capture...');
+          previewManager.stopAll();
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
 
         // Capture photo

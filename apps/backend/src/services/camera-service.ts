@@ -7,6 +7,7 @@ import { promises as fsPromises } from 'fs';
 import { nanoid } from 'nanoid';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import sharp from 'sharp';
 
 const execAsync = promisify(exec);
 const logger = createLogger('camera-service');
@@ -27,6 +28,7 @@ export class CameraService {
   private isInitialized = false;
   private cameraMode: 'dslr' | 'webcam' | 'mock' = 'mock';
   private webcamDevice: string = '/dev/video0';
+  private _isStreaming = false;
 
   constructor() {
     if (env.useWebcam) {
@@ -91,6 +93,56 @@ export class CameraService {
 
   isConnected(): boolean {
     return this.isInitialized;
+  }
+
+  get isStreaming(): boolean {
+    return this._isStreaming;
+  }
+
+  setStreaming(value: boolean): void {
+    this._isStreaming = value;
+  }
+
+  async getPreviewFrame(): Promise<Buffer> {
+    if (!this.isInitialized) {
+      throw new Error('Camera not initialized');
+    }
+
+    if (this.cameraMode === 'webcam') {
+      throw new Error('Webcam mode uses browser getUserMedia, not server preview');
+    }
+
+    if (this.cameraMode === 'mock') {
+      return this.getMockPreviewFrame();
+    }
+
+    return this.getDslrPreviewFrame();
+  }
+
+  private getDslrPreviewFrame(): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      this.camera.takePicture({ preview: true }, (err: any, data: Buffer) => {
+        if (err) {
+          reject(new Error(`Preview frame failed: ${err.message}`));
+          return;
+        }
+        resolve(data);
+      });
+    });
+  }
+
+  private async getMockPreviewFrame(): Promise<Buffer> {
+    const timestamp = new Date().toISOString().slice(11, 23);
+    const svg = `
+      <svg width="640" height="480" xmlns="http://www.w3.org/2000/svg">
+        <rect width="640" height="480" fill="#333"/>
+        <text x="320" y="220" text-anchor="middle" fill="#aaa" font-size="28" font-family="monospace">Mock Camera Preview</text>
+        <text x="320" y="270" text-anchor="middle" fill="#888" font-size="20" font-family="monospace">${timestamp}</text>
+      </svg>`;
+    return sharp(Buffer.from(svg))
+      .resize(640, 480)
+      .jpeg({ quality: 70 })
+      .toBuffer();
   }
 
   async capturePhoto(sessionId: string, sequenceNumber: number): Promise<{
