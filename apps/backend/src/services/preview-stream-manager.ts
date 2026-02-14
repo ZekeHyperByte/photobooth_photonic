@@ -75,8 +75,8 @@ class PreviewStreamManager {
     const run = async () => {
       try {
         await cameraService.enterLiveView();
-        // Canon needs time to initialize LiveView before frames are available
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        // Canon 550D needs more time to initialize LiveView before frames are available
+        await new Promise((resolve) => setTimeout(resolve, 3000));
 
         let frameCount = 0;
         let errorCount = 0;
