@@ -102,7 +102,7 @@ class PreviewStreamManager {
       cameraService.setStreaming(false);
       await cameraService.exitLiveView();
       // Canon needs time to transition out of LiveView before capture
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       logger.info('Preview loop ended');
       this.loopStoppedResolve?.();
       this.loopStopped = null;
@@ -115,7 +115,7 @@ class PreviewStreamManager {
       cameraService.setStreaming(false);
       await cameraService.exitLiveView();
       // Canon needs time to transition out of LiveView before capture
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 2000));
       this.loopStoppedResolve?.();
       this.loopStopped = null;
       this.loopStoppedResolve = null;

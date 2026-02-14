@@ -114,18 +114,13 @@ export class CameraService {
     await new Promise<void>((resolve) => {
       this.camera.setConfigValue('eosviewfinder', 1, (err: any) => {
         if (err) {
-          this.camera.setConfigValue('viewfinder', 1, (err2: any) => {
-            if (err2) {
-              logger.warn('Could not enter LiveView:', err2.message || err2);
-            } else {
-              logger.info('LiveView entered (viewfinder)');
-            }
-            resolve();
-          });
+          // Don't fall back to 'viewfinder' — it controls the optical viewfinder, not LiveView.
+          // takePicture({preview:true}) will attempt to enter LiveView implicitly via libgphoto2.
+          logger.warn(`eosviewfinder config failed: ${err?.message || err}. Will rely on implicit LiveView.`);
         } else {
           logger.info('LiveView entered (eosviewfinder)');
-          resolve();
         }
+        resolve();
       });
     });
   }
@@ -141,19 +136,12 @@ export class CameraService {
     await new Promise<void>((resolve) => {
       this.camera.setConfigValue('eosviewfinder', 0, (err: any) => {
         if (err) {
-          // Try alternative config name
-          this.camera.setConfigValue('viewfinder', 0, (err2: any) => {
-            if (err2) {
-              logger.warn('Could not exit LiveView:', err2.message || err2);
-            } else {
-              logger.info('LiveView exited (viewfinder)');
-            }
-            resolve();
-          });
+          // Don't fall back to 'viewfinder' — it doesn't control LiveView on Canon EOS.
+          logger.warn(`eosviewfinder exit failed: ${err?.message || err}. Camera may need time to settle.`);
         } else {
           logger.info('LiveView exited (eosviewfinder)');
-          resolve();
         }
+        resolve();
       });
     });
   }
@@ -225,7 +213,32 @@ export class CameraService {
       return this.captureMockPhoto(sessionId, sequenceNumber);
     }
 
-    return this.captureGphoto2(sessionId, sequenceNumber);
+    return this.captureGphoto2WithRetry(sessionId, sequenceNumber);
+  }
+
+  private async captureGphoto2WithRetry(sessionId: string, sequenceNumber: number): Promise<{
+    imagePath: string;
+    metadata: CameraMetadata;
+  }> {
+    const MAX_RETRIES = 3;
+    const INITIAL_DELAY_MS = 1000;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await this.captureGphoto2(sessionId, sequenceNumber);
+      } catch (err: any) {
+        const isPtpBusy = err?.message?.includes('Device Busy') || err?.message?.includes('-110');
+        if (isPtpBusy && attempt < MAX_RETRIES) {
+          const delay = INITIAL_DELAY_MS * attempt;
+          logger.warn(`Capture attempt ${attempt}/${MAX_RETRIES} failed (PTP Device Busy), retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    throw new Error('Capture failed: exhausted retries');
   }
 
   private captureGphoto2(sessionId: string, sequenceNumber: number): Promise<{
@@ -237,7 +250,7 @@ export class CameraService {
 
       this.camera.takePicture({ download: true }, (err: any, data: Buffer) => {
         if (err) {
-          logger.error('gphoto2 capture failed:', err);
+          logger.error(`gphoto2 capture failed: ${err?.message || err}`);
           reject(new Error(`Capture failed: ${err?.message || err}`));
           return;
         }
@@ -266,7 +279,7 @@ export class CameraService {
 
           resolve({ imagePath, metadata });
         } catch (error: any) {
-          logger.error('Failed to save photo:', error);
+          logger.error(`Failed to save photo: ${error.message}`);
           reject(new Error(`Failed to save photo: ${error.message}`));
         }
       });
