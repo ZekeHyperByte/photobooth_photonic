@@ -74,6 +74,8 @@ class PreviewStreamManager {
 
     const run = async () => {
       await cameraService.enterLiveView();
+      // Canon needs time to initialize LiveView before frames are available
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       let frameCount = 0;
       let errorCount = 0;
@@ -88,7 +90,7 @@ class PreviewStreamManager {
         } catch (err: any) {
           errorCount++;
           if (errorCount <= 3) {
-            logger.error(`Preview frame error (${errorCount}):`, err?.message || err);
+            logger.error(`Preview frame error (${errorCount}): ${err?.message || err}`);
           }
         }
 
@@ -99,6 +101,8 @@ class PreviewStreamManager {
       this.loopRunning = false;
       cameraService.setStreaming(false);
       await cameraService.exitLiveView();
+      // Canon needs time to transition out of LiveView before capture
+      await new Promise(resolve => setTimeout(resolve, 500));
       logger.info('Preview loop ended');
       this.loopStoppedResolve?.();
       this.loopStopped = null;
@@ -110,6 +114,8 @@ class PreviewStreamManager {
       this.loopRunning = false;
       cameraService.setStreaming(false);
       await cameraService.exitLiveView();
+      // Canon needs time to transition out of LiveView before capture
+      await new Promise(resolve => setTimeout(resolve, 500));
       this.loopStoppedResolve?.();
       this.loopStopped = null;
       this.loopStoppedResolve = null;
