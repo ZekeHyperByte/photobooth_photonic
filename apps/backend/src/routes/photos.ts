@@ -9,6 +9,7 @@ import { HTTP_STATUS, MESSAGES, ENDPOINTS } from '@photonic/config';
 import { logger } from '@photonic/utils';
 import { imageProcessor } from '../services/image-processor';
 import { getCameraService } from '../services/camera-service';
+import { getPreviewStreamManager } from '../services/preview-stream-manager';
 import type {
   CapturePhotoRequest,
   ProcessPhotoRequest,
@@ -62,6 +63,13 @@ export async function photoRoutes(fastify: FastifyInstance) {
         // Initialize camera if not already done
         if (!cameraService.isConnected()) {
           await cameraService.initialize();
+        }
+
+        // Stop preview stream before capture (gphoto2 is single-threaded over USB)
+        const previewManager = getPreviewStreamManager();
+        if (previewManager.clientCount > 0) {
+          logger.info('Stopping preview stream for capture...');
+          await previewManager.stopAll();
         }
 
         // Use provided sequence number or calculate based on existing photos
