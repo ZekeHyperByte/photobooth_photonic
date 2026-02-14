@@ -73,17 +73,27 @@ class PreviewStreamManager {
     logger.info('Preview loop started');
 
     const run = async () => {
+      let frameCount = 0;
+      let errorCount = 0;
       while (this.loopRunning && this.clients.size > 0) {
         try {
           const frame = await cameraService.getPreviewFrame();
           this.broadcastFrame(frame);
+          frameCount++;
+          if (frameCount === 1) {
+            logger.info(`First preview frame sent (${frame.length} bytes)`);
+          }
         } catch (err: any) {
-          logger.error('Preview frame error:', err.message);
+          errorCount++;
+          if (errorCount <= 3) {
+            logger.error(`Preview frame error (${errorCount}):`, err?.message || err);
+          }
         }
 
         // Sleep between frames
         await new Promise(resolve => setTimeout(resolve, FRAME_INTERVAL_MS));
       }
+      logger.info(`Preview loop stats: ${frameCount} frames sent, ${errorCount} errors`);
       this.loopRunning = false;
       cameraService.setStreaming(false);
       logger.info('Preview loop ended');

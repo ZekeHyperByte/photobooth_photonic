@@ -103,6 +103,34 @@ export class CameraService {
     this._isStreaming = value;
   }
 
+  /**
+   * Explicitly exit LiveView/viewfinder mode on Canon DSLRs.
+   * Must be called before capture if preview was streaming.
+   */
+  async exitLiveView(): Promise<void> {
+    if (this.cameraMode !== 'dslr' || !this.camera) return;
+
+    logger.info('Exiting LiveView...');
+    await new Promise<void>((resolve) => {
+      this.camera.setConfigValue('eosviewfinder', 0, (err: any) => {
+        if (err) {
+          // Try alternative config name
+          this.camera.setConfigValue('viewfinder', 0, (err2: any) => {
+            if (err2) {
+              logger.warn('Could not exit LiveView:', err2.message || err2);
+            } else {
+              logger.info('LiveView exited (viewfinder)');
+            }
+            resolve();
+          });
+        } else {
+          logger.info('LiveView exited (eosviewfinder)');
+          resolve();
+        }
+      });
+    });
+  }
+
   async getPreviewFrame(): Promise<Buffer> {
     if (!this.isInitialized) {
       throw new Error('Camera not initialized');
@@ -121,9 +149,18 @@ export class CameraService {
 
   private getDslrPreviewFrame(): Promise<Buffer> {
     return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Preview frame timed out (5s)'));
+      }, 5000);
+
       this.camera.takePicture({ preview: true }, (err: any, data: Buffer) => {
+        clearTimeout(timeout);
         if (err) {
-          reject(new Error(`Preview frame failed: ${err.message}`));
+          reject(new Error(`Preview frame failed: ${err?.message || err}`));
+          return;
+        }
+        if (!data || data.length === 0) {
+          reject(new Error('Preview frame returned empty data'));
           return;
         }
         resolve(data);
@@ -171,10 +208,10 @@ export class CameraService {
     return new Promise((resolve, reject) => {
       logger.info('gphoto2: Capturing photo...', { sessionId, sequenceNumber });
 
-      this.camera.takePicture({}, (err: any, data: Buffer) => {
+      this.camera.takePicture({ download: true }, (err: any, data: Buffer) => {
         if (err) {
           logger.error('gphoto2 capture failed:', err);
-          reject(new Error(`Capture failed: ${err.message}`));
+          reject(new Error(`Capture failed: ${err?.message || err}`));
           return;
         }
 

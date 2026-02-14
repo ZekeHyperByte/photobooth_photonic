@@ -72,6 +72,11 @@ export async function photoRoutes(fastify: FastifyInstance) {
           await previewManager.stopAll();
         }
 
+        // Exit LiveView mode — Canon DSLRs won't capture while in LiveView
+        await cameraService.exitLiveView();
+        // Brief delay for camera to finish transitioning out of LiveView
+        await new Promise(resolve => setTimeout(resolve, 300));
+
         // Use provided sequence number or calculate based on existing photos
         let sequenceNumber = body.sequenceNumber;
         if (!sequenceNumber) {
