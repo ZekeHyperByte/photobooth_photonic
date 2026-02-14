@@ -73,6 +73,8 @@ class PreviewStreamManager {
     logger.info('Preview loop started');
 
     const run = async () => {
+      await cameraService.enterLiveView();
+
       let frameCount = 0;
       let errorCount = 0;
       while (this.loopRunning && this.clients.size > 0) {
@@ -96,16 +98,18 @@ class PreviewStreamManager {
       logger.info(`Preview loop stats: ${frameCount} frames sent, ${errorCount} errors`);
       this.loopRunning = false;
       cameraService.setStreaming(false);
+      await cameraService.exitLiveView();
       logger.info('Preview loop ended');
       this.loopStoppedResolve?.();
       this.loopStopped = null;
       this.loopStoppedResolve = null;
     };
 
-    run().catch(err => {
-      logger.error('Preview loop crashed:', err);
+    run().catch(async (err) => {
+      logger.error(`Preview loop crashed: ${err?.message || err}`);
       this.loopRunning = false;
       cameraService.setStreaming(false);
+      await cameraService.exitLiveView();
       this.loopStoppedResolve?.();
       this.loopStopped = null;
       this.loopStoppedResolve = null;

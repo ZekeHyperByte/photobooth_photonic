@@ -104,6 +104,33 @@ export class CameraService {
   }
 
   /**
+   * Explicitly enter LiveView/viewfinder mode on Canon DSLRs.
+   * Must be called before preview frames will return data.
+   */
+  async enterLiveView(): Promise<void> {
+    if (this.cameraMode !== 'dslr' || !this.camera) return;
+
+    logger.info('Entering LiveView...');
+    await new Promise<void>((resolve) => {
+      this.camera.setConfigValue('eosviewfinder', 1, (err: any) => {
+        if (err) {
+          this.camera.setConfigValue('viewfinder', 1, (err2: any) => {
+            if (err2) {
+              logger.warn('Could not enter LiveView:', err2.message || err2);
+            } else {
+              logger.info('LiveView entered (viewfinder)');
+            }
+            resolve();
+          });
+        } else {
+          logger.info('LiveView entered (eosviewfinder)');
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
    * Explicitly exit LiveView/viewfinder mode on Canon DSLRs.
    * Must be called before capture if preview was streaming.
    */

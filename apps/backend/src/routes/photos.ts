@@ -66,16 +66,12 @@ export async function photoRoutes(fastify: FastifyInstance) {
         }
 
         // Stop preview stream before capture (gphoto2 is single-threaded over USB)
+        // stopAll() awaits the loop exit which includes exiting LiveView
         const previewManager = getPreviewStreamManager();
         if (previewManager.clientCount > 0) {
           logger.info('Stopping preview stream for capture...');
           await previewManager.stopAll();
         }
-
-        // Exit LiveView mode — Canon DSLRs won't capture while in LiveView
-        await cameraService.exitLiveView();
-        // Brief delay for camera to finish transitioning out of LiveView
-        await new Promise(resolve => setTimeout(resolve, 300));
 
         // Use provided sequence number or calculate based on existing photos
         let sequenceNumber = body.sequenceNumber;
