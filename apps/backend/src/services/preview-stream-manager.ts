@@ -6,9 +6,7 @@ import { nanoid } from "nanoid";
 const logger = createLogger("preview-stream");
 
 const BOUNDARY = "frame";
-const FRAME_INTERVAL_MS = 200; // ~5fps (more stable for Canon 550D)
-const WARMUP_FRAMES = 5; // Discard first N frames (frame warming)
-const LIVEVIEW_INIT_DELAY_MS = 7000; // Canon 550D needs 7s for stable LiveView
+const FRAME_INTERVAL_MS = 200; // ~5fps
 
 interface Client {
   id: string;
@@ -20,6 +18,9 @@ class PreviewStreamManager {
   private loopRunning = false;
   private loopStoppedResolve: (() => void) | null = null;
   private loopStopped: Promise<void> | null = null;
+  private previewStream: NodeJS.ReadableStream | null = null;
+  private frameBuffer: Buffer = Buffer.alloc(0);
+  private isCollectingFrame = false;
 
   addClient(res: ServerResponse): string {
     const id = nanoid();
@@ -70,116 +71,87 @@ class PreviewStreamManager {
       this.loopStoppedResolve = resolve;
     });
     const cameraService = getCameraService();
-    cameraService.setStreaming(true);
 
     logger.info("Preview loop started");
 
     const run = async () => {
       try {
-        await cameraService.enterLiveView();
-        // Canon 550D needs 7s for stable LiveView initialization
-        logger.info(
-          `Waiting ${LIVEVIEW_INIT_DELAY_MS}ms for LiveView stabilization...`,
-        );
-        await new Promise((resolve) =>
-          setTimeout(resolve, LIVEVIEW_INIT_DELAY_MS),
-        );
+        // Start CLI-based preview stream
+        logger.info("Starting CLI preview stream...");
+        this.previewStream = await cameraService.startPreviewStream();
 
         let frameCount = 0;
         let errorCount = 0;
         let consecutiveErrors = 0;
-        const MAX_CONSECUTIVE_ERRORS = 5;
-        let warmupCounter = 0;
-        let hasWarmedUp = false;
+        const MAX_CONSECUTIVE_ERRORS = 3;
 
-        while (this.loopRunning && this.clients.size > 0) {
-          try {
-            // Retry logic: try up to 3 times to get a valid frame
-            let frame: Buffer | null = null;
-            let retries = 0;
-            const MAX_RETRIES = 3;
+        // Handle incoming data from preview stream
+        this.previewStream.on("data", (chunk: Buffer) => {
+          // Accumulate data and look for JPEG frames
+          this.frameBuffer = Buffer.concat([this.frameBuffer, chunk]);
 
-            while (retries < MAX_RETRIES && !frame) {
-              try {
-                frame = await cameraService.getPreviewFrame();
-              } catch (retryErr: any) {
-                retries++;
-                if (retries < MAX_RETRIES) {
-                  logger.warn(
-                    `Frame capture failed (retry ${retries}/${MAX_RETRIES}): ${retryErr.message}`,
-                  );
-                  await new Promise((resolve) => setTimeout(resolve, 100));
-                } else {
-                  throw retryErr;
-                }
-              }
-            }
+          // Process complete JPEG frames from the buffer
+          this.processFrames((frame) => {
+            if (!this.loopRunning) return;
 
-            if (!frame) {
-              throw new Error("Failed to capture frame after retries");
-            }
+            try {
+              this.broadcastFrame(frame);
+              frameCount++;
+              consecutiveErrors = 0;
 
-            // Frame warming: discard first WARMUP_FRAMES frames
-            if (!hasWarmedUp) {
-              warmupCounter++;
-              if (warmupCounter <= WARMUP_FRAMES) {
+              if (frameCount === 1) {
                 logger.info(
-                  `Frame warming: discarding frame ${warmupCounter}/${WARMUP_FRAMES} (${frame.length} bytes)`,
+                  `First preview frame broadcast (${frame.length} bytes)`,
                 );
-                consecutiveErrors = 0;
-                await new Promise((resolve) =>
-                  setTimeout(resolve, FRAME_INTERVAL_MS),
-                );
-                continue;
-              } else {
-                hasWarmedUp = true;
-                logger.info(`Frame warming complete. Starting stream...`);
+              }
+            } catch (err: any) {
+              errorCount++;
+              consecutiveErrors++;
+              logger.error(`Broadcast error: ${err.message}`);
+
+              if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                logger.error(`Too many consecutive errors, stopping stream`);
+                this.loopRunning = false;
               }
             }
+          });
+        });
 
-            this.broadcastFrame(frame);
-            frameCount++;
-            consecutiveErrors = 0; // Reset on success
-            if (frameCount === 1) {
-              logger.info(
-                `First preview frame broadcast (${frame.length} bytes)`,
-              );
-            }
-          } catch (err: any) {
-            errorCount++;
-            consecutiveErrors++;
-            if (
-              errorCount <= 3 ||
-              consecutiveErrors >= MAX_CONSECUTIVE_ERRORS
-            ) {
-              logger.error(
-                `Preview frame error (${errorCount}, consecutive: ${consecutiveErrors}): ${err?.message || err}`,
-              );
-            }
+        this.previewStream.on("error", (err: Error) => {
+          logger.error("Preview stream error:", err.message);
+          errorCount++;
+          consecutiveErrors++;
 
-            // If too many consecutive errors, exit the loop to allow recovery
-            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-              logger.error(
-                `Too many consecutive preview errors (${consecutiveErrors}), stopping preview stream`,
-              );
-              break;
-            }
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            this.loopRunning = false;
           }
+        });
 
-          // Sleep between frames
-          await new Promise((resolve) =>
-            setTimeout(resolve, FRAME_INTERVAL_MS),
-          );
+        this.previewStream.on("end", () => {
+          logger.info("Preview stream ended");
+          this.loopRunning = false;
+        });
+
+        // Keep loop running while clients are connected
+        while (this.loopRunning && this.clients.size > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
+
         logger.info(
-          `Preview loop stats: ${frameCount} frames sent, ${errorCount} errors (warmed up: ${hasWarmedUp})`,
+          `Preview loop stats: ${frameCount} frames sent, ${errorCount} errors`,
         );
+      } catch (err: any) {
+        logger.error("Preview loop error:", err.message);
       } finally {
         this.loopRunning = false;
-        cameraService.setStreaming(false);
-        await cameraService.exitLiveView();
-        // Canon needs more time to transition out of LiveView before capture
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        // Stop camera preview stream
+        try {
+          await cameraService.stopPreviewStream();
+        } catch (err: any) {
+          logger.error("Error stopping preview stream:", err.message);
+        }
+
         logger.info("Preview loop ended");
         this.loopStoppedResolve?.();
         this.loopStopped = null;
@@ -187,17 +159,53 @@ class PreviewStreamManager {
       }
     };
 
-    run().catch(async (err) => {
-      logger.error(`Preview loop crashed: ${err?.message || err}`);
-      this.loopRunning = false;
-      cameraService.setStreaming(false);
-      await cameraService.exitLiveView();
-      // Canon needs more time to transition out of LiveView before capture
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      this.loopStoppedResolve?.();
-      this.loopStopped = null;
-      this.loopStoppedResolve = null;
-    });
+    run();
+  }
+
+  /**
+   * Process accumulated buffer to extract complete JPEG frames
+   */
+  private processFrames(onFrame: (frame: Buffer) => void): void {
+    // MJPEG frames are just concatenated JPEG files
+    // Look for JPEG markers: 0xFFD8 (start) and 0xFFD9 (end)
+
+    while (this.frameBuffer.length > 100) {
+      // Minimum JPEG size
+      const startIdx = this.frameBuffer.indexOf(Buffer.from([0xff, 0xd8]));
+
+      if (startIdx === -1) {
+        // No start marker found, clear buffer
+        this.frameBuffer = Buffer.alloc(0);
+        return;
+      }
+
+      // Look for end marker after start
+      const endIdx = this.frameBuffer.indexOf(
+        Buffer.from([0xff, 0xd9]),
+        startIdx + 2,
+      );
+
+      if (endIdx === -1) {
+        // Incomplete frame, keep buffer and wait for more data
+        // But remove any garbage before the start marker
+        if (startIdx > 0) {
+          this.frameBuffer = this.frameBuffer.slice(startIdx);
+        }
+        return;
+      }
+
+      // Extract complete frame (including end marker)
+      const frame = this.frameBuffer.slice(startIdx, endIdx + 2);
+
+      // Validate frame
+      if (frame.length > 1000) {
+        // Reasonable minimum size for a JPEG
+        onFrame(frame);
+      }
+
+      // Remove processed frame from buffer
+      this.frameBuffer = this.frameBuffer.slice(endIdx + 2);
+    }
   }
 
   private stopLoop(): void {

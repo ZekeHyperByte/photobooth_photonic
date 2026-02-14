@@ -9,7 +9,7 @@ import path from "path";
 import fs from "fs";
 import { promises as fsPromises } from "fs";
 import { nanoid } from "nanoid";
-import { exec } from "child_process";
+import { spawn, exec } from "child_process";
 import { promisify } from "util";
 import sharp from "sharp";
 
@@ -27,29 +27,21 @@ async function ensureDir(dirPath: string): Promise<void> {
 }
 
 export class CameraService {
-  private camera: any = null;
-  private gphoto2: any = null;
   private isInitialized = false;
   private cameraMode: "dslr" | "webcam" | "mock" = "mock";
   private webcamDevice: string = "/dev/video0";
   private _isStreaming = false;
-  private liveViewConfigName: string | null = null;
-  private availableConfigs: string[] = [];
+  private previewProcess: any = null;
+  private ffmpegProcess: any = null;
+  private cameraModel: string = "Unknown";
 
   constructor() {
     if (env.useWebcam) {
       this.cameraMode = "webcam";
       logger.info("Camera service running in WEBCAM MODE");
     } else if (!env.mockCamera) {
-      try {
-        const GPhoto = require("gphoto2");
-        this.gphoto2 = new GPhoto.GPhoto2();
-        this.cameraMode = "dslr";
-        logger.info("Camera service running in DSLR MODE (gphoto2)");
-      } catch (error) {
-        logger.warn("gphoto2 not available. Running in mock mode.", error);
-        env.mockCamera = true;
-      }
+      this.cameraMode = "dslr";
+      logger.info("Camera service running in DSLR MODE (CLI-based)");
     }
 
     if (env.mockCamera && this.cameraMode !== "webcam") {
@@ -73,28 +65,36 @@ export class CameraService {
       return;
     }
 
-    return this.initializeGphoto2();
+    return this.detectCamera();
   }
 
-  private initializeGphoto2(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.gphoto2.list((cameras: any[]) => {
-        if (cameras.length === 0) {
-          reject(new Error("No cameras detected"));
-          return;
+  private async detectCamera(): Promise<void> {
+    try {
+      const { stdout } = await execAsync("gphoto2 --auto-detect");
+      if (stdout.includes("Canon") || stdout.includes("Canon EOS")) {
+        // Extract camera model
+        const lines = stdout.split("\n");
+        for (const line of lines) {
+          if (line.includes("usb:")) {
+            const parts = line.trim().split("usb:");
+            if (parts.length > 0) {
+              this.cameraModel = parts[0].trim();
+              break;
+            }
+          }
         }
-
-        this.camera = cameras[0];
         this.isInitialized = true;
-
-        logger.info("gphoto2 camera connected:", {
-          model: this.camera.model,
-          port: this.camera.port,
-        });
-
-        resolve();
-      });
-    });
+        logger.info(`Canon camera detected: ${this.cameraModel}`);
+      } else if (stdout.trim() === "" || stdout.includes("No cameras")) {
+        throw new Error("No camera detected via gphoto2");
+      } else {
+        this.isInitialized = true;
+        logger.info("Camera detected via gphoto2");
+      }
+    } catch (error: any) {
+      logger.error("Failed to detect camera:", error.message);
+      throw new Error(`Camera detection failed: ${error.message}`);
+    }
   }
 
   isConnected(): boolean {
@@ -110,133 +110,148 @@ export class CameraService {
   }
 
   /**
-   * Try setting LiveView config with a specific name
+   * Start preview stream using gphoto2 --capture-movie piped to ffmpeg
+   * Returns a readable stream of MJPEG data
    */
-  private async trySetLiveViewConfig(
-    configName: string,
-    value: number,
-  ): Promise<boolean> {
-    return new Promise((resolve) => {
-      this.camera.setConfigValue(configName, value, (err: any) => {
-        if (err) {
-          logger.debug(`Config ${configName}=${value} failed: ${err.message}`);
-          resolve(false);
-        } else {
-          logger.info(
-            `LiveView ${value === 1 ? "entered" : "exited"} (${configName})`,
-          );
-          resolve(true);
-        }
-      });
+  async startPreviewStream(): Promise<NodeJS.ReadableStream> {
+    if (this.cameraMode !== "dslr") {
+      throw new Error("Preview stream only available in DSLR mode");
+    }
+
+    // Kill any existing preview process
+    await this.stopPreviewStream();
+
+    logger.info("Starting CLI preview stream...");
+
+    return new Promise((resolve, reject) => {
+      try {
+        // Spawn gphoto2 to capture movie
+        this.previewProcess = spawn(
+          "gphoto2",
+          ["--capture-movie", "--stdout"],
+          {
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
+
+        // Spawn ffmpeg to convert to MJPEG
+        this.ffmpegProcess = spawn(
+          "ffmpeg",
+          [
+            "-i",
+            "-", // Input from stdin
+            "-f",
+            "mjpeg", // Output format: MJPEG
+            "-q:v",
+            "5", // Quality (1-31, lower is better)
+            "-r",
+            "5", // Frame rate: 5fps
+            "pipe:1", // Output to stdout
+          ],
+          {
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        );
+
+        // Pipe gphoto2 stdout to ffmpeg stdin
+        this.previewProcess.stdout.pipe(this.ffmpegProcess.stdin);
+
+        // Handle errors
+        this.previewProcess.on("error", (err: Error) => {
+          logger.error("gphoto2 preview process error:", err.message);
+          this.cleanupPreviewProcesses();
+          reject(err);
+        });
+
+        this.ffmpegProcess.on("error", (err: Error) => {
+          logger.error("ffmpeg process error:", err.message);
+          this.cleanupPreviewProcesses();
+          reject(err);
+        });
+
+        this.previewProcess.stderr.on("data", (data: Buffer) => {
+          const msg = data.toString().trim();
+          if (msg && !msg.includes("Sending data") && !msg.includes("blocks")) {
+            logger.debug("gphoto2:", msg);
+          }
+        });
+
+        this.ffmpegProcess.stderr.on("data", (data: Buffer) => {
+          const msg = data.toString().trim();
+          // ffmpeg outputs progress to stderr, only log errors
+          if (msg && msg.includes("Error")) {
+            logger.error("ffmpeg:", msg);
+          }
+        });
+
+        // Wait a moment for processes to start
+        setTimeout(() => {
+          if (this.ffmpegProcess && this.ffmpegProcess.stdout) {
+            this._isStreaming = true;
+            logger.info("CLI preview stream started successfully");
+            resolve(this.ffmpegProcess.stdout);
+          } else {
+            reject(new Error("Failed to start preview stream"));
+          }
+        }, 1000);
+      } catch (error: any) {
+        logger.error("Failed to start preview stream:", error.message);
+        this.cleanupPreviewProcesses();
+        reject(error);
+      }
     });
   }
 
   /**
-   * Set LiveView config value - tries viewfinder (Canon 550D) then eosviewfinder (newer models)
+   * Stop the preview stream processes
    */
-  private async setLiveViewValue(value: number): Promise<boolean> {
-    if (this.cameraMode !== "dslr" || !this.camera) return false;
-
-    // Try viewfinder first (Canon 550D and older models)
-    if (await this.trySetLiveViewConfig("viewfinder", value)) {
-      this.liveViewConfigName = "viewfinder";
-      return true;
+  async stopPreviewStream(): Promise<void> {
+    if (!this.previewProcess && !this.ffmpegProcess) {
+      return;
     }
 
-    // Try eosviewfinder (newer Canon models)
-    if (await this.trySetLiveViewConfig("eosviewfinder", value)) {
-      this.liveViewConfigName = "eosviewfinder";
-      return true;
-    }
+    logger.info("Stopping CLI preview stream...");
+    this._isStreaming = false;
 
-    logger.warn(`No LiveView config available on this camera model`);
-    return false;
+    this.cleanupPreviewProcesses();
+
+    // Wait a moment for processes to fully terminate
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    logger.info("Preview stream stopped");
   }
 
-  /**
-   * Explicitly enter LiveView/viewfinder mode on Canon DSLRs.
-   * Must be called before preview frames will return data.
-   */
-  async enterLiveView(): Promise<void> {
-    if (this.cameraMode !== "dslr" || !this.camera) return;
-
-    logger.info("Entering LiveView...");
-    const success = await this.setLiveViewValue(1);
-
-    if (!success) {
-      logger.warn(
-        "Could not enter LiveView via config. Will try implicit mode via takePicture.",
-      );
+  private cleanupPreviewProcesses(): void {
+    if (this.previewProcess) {
+      try {
+        this.previewProcess.kill("SIGTERM");
+        // Force kill after 2 seconds if still running
+        setTimeout(() => {
+          try {
+            this.previewProcess?.kill("SIGKILL");
+          } catch {}
+        }, 2000);
+      } catch {}
+      this.previewProcess = null;
     }
-  }
 
-  /**
-   * Explicitly exit LiveView/viewfinder mode on Canon DSLRs.
-   * Must be called before capture if preview was streaming.
-   */
-  async exitLiveView(): Promise<void> {
-    if (this.cameraMode !== "dslr" || !this.camera) return;
-
-    logger.info("Exiting LiveView...");
-    await this.setLiveViewValue(0);
+    if (this.ffmpegProcess) {
+      try {
+        this.ffmpegProcess.kill("SIGTERM");
+        setTimeout(() => {
+          try {
+            this.ffmpegProcess?.kill("SIGKILL");
+          } catch {}
+        }, 2000);
+      } catch {}
+      this.ffmpegProcess = null;
+    }
   }
 
   async getPreviewFrame(): Promise<Buffer> {
-    if (!this.isInitialized) {
-      throw new Error("Camera not initialized");
-    }
-
-    if (this.cameraMode === "webcam") {
-      throw new Error(
-        "Webcam mode uses browser getUserMedia, not server preview",
-      );
-    }
-
-    if (this.cameraMode === "mock") {
-      return this.getMockPreviewFrame();
-    }
-
-    return this.getDslrPreviewFrame();
-  }
-
-  private async getDslrPreviewFrame(): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error("Preview frame timed out (8s)"));
-      }, 8000);
-
-      this.camera.takePicture({ preview: true }, (err: any, data: Buffer) => {
-        clearTimeout(timeout);
-        if (err) {
-          reject(new Error(`Preview frame failed: ${err?.message || err}`));
-          return;
-        }
-        if (!data || data.length === 0) {
-          reject(new Error("Preview frame returned empty data"));
-          return;
-        }
-        // Validate JPEG header (must start with 0xFFD8)
-        if (data.length < 2 || data[0] !== 0xff || data[1] !== 0xd8) {
-          reject(new Error("Preview frame has invalid JPEG header"));
-          return;
-        }
-        resolve(data);
-      });
-    });
-  }
-
-  private async getMockPreviewFrame(): Promise<Buffer> {
-    const timestamp = new Date().toISOString().slice(11, 23);
-    const svg = `
-      <svg width="640" height="480" xmlns="http://www.w3.org/2000/svg">
-        <rect width="640" height="480" fill="#333"/>
-        <text x="320" y="220" text-anchor="middle" fill="#aaa" font-size="28" font-family="monospace">Mock Camera Preview</text>
-        <text x="320" y="270" text-anchor="middle" fill="#888" font-size="20" font-family="monospace">${timestamp}</text>
-      </svg>`;
-    return sharp(Buffer.from(svg))
-      .resize(640, 480)
-      .jpeg({ quality: 70 })
-      .toBuffer();
+    throw new Error(
+      "getPreviewFrame() not supported in CLI mode. Use startPreviewStream() instead.",
+    );
   }
 
   async capturePhoto(
@@ -258,92 +273,93 @@ export class CameraService {
       return this.captureMockPhoto(sessionId, sequenceNumber);
     }
 
-    return this.captureGphoto2WithRetry(sessionId, sequenceNumber);
+    return this.captureDslrPhoto(sessionId, sequenceNumber);
   }
 
-  private async captureGphoto2WithRetry(
+  private async captureDslrPhoto(
     sessionId: string,
     sequenceNumber: number,
   ): Promise<{
     imagePath: string;
     metadata: CameraMetadata;
   }> {
-    const MAX_RETRIES = 5;
-    const INITIAL_DELAY_MS = 1500;
+    // Stop preview if running (USB exclusivity)
+    const wasStreaming = this._isStreaming;
+    if (wasStreaming) {
+      logger.info("Stopping preview for capture (USB exclusivity)...");
+      await this.stopPreviewStream();
+      // Wait for camera to settle
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
 
-    // Ensure LiveView is fully exited before capture
-    await this.exitLiveView();
-    // Canon needs more time to settle after exiting LiveView
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    const MAX_RETRIES = 3;
+    const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
+    const imagePath = path.join(env.tempPhotoPath, filename);
+
+    await ensureDir(env.tempPhotoPath);
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        return await this.captureGphoto2(sessionId, sequenceNumber);
+        logger.info(`CLI capture attempt ${attempt}/${MAX_RETRIES}...`, {
+          sessionId,
+          sequenceNumber,
+        });
+
+        // Capture and download in one command
+        const command = `gphoto2 --capture-image-and-download --filename "${imagePath}" --force-overwrite`;
+
+        await execAsync(command, { timeout: 15000 });
+
+        // Verify file was created
+        if (!fs.existsSync(imagePath)) {
+          throw new Error("Capture failed: image file not created");
+        }
+
+        const stats = fs.statSync(imagePath);
+        if (stats.size < 10000) {
+          throw new Error("Capture failed: image file too small");
+        }
+
+        logger.info("CLI capture successful", { imagePath, size: stats.size });
+
+        // Restart preview if it was running
+        if (wasStreaming) {
+          logger.info("Restarting preview stream after capture...");
+          // Preview will be restarted by preview-stream-manager
+        }
+
+        const metadata: CameraMetadata = {
+          model: this.cameraModel,
+          iso: "Auto",
+          shutterSpeed: "Auto",
+          aperture: "Auto",
+          focalLength: "Unknown",
+          timestamp: new Date().toISOString(),
+        };
+
+        return { imagePath, metadata };
       } catch (err: any) {
         const isPtpBusy =
           err?.message?.includes("Device Busy") ||
           err?.message?.includes("-110");
+
         if (isPtpBusy && attempt < MAX_RETRIES) {
-          const delay = INITIAL_DELAY_MS * attempt;
+          const delay = 1000 * attempt;
           logger.warn(
             `Capture attempt ${attempt}/${MAX_RETRIES} failed (PTP Device Busy), retrying in ${delay}ms...`,
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
         } else {
+          // Restart preview if it was running (even on error)
+          if (wasStreaming) {
+            logger.info("Restarting preview stream after capture error...");
+          }
           throw err;
         }
       }
     }
 
     throw new Error("Capture failed: exhausted retries");
-  }
-
-  private captureGphoto2(
-    sessionId: string,
-    sequenceNumber: number,
-  ): Promise<{
-    imagePath: string;
-    metadata: CameraMetadata;
-  }> {
-    return new Promise((resolve, reject) => {
-      logger.info("gphoto2: Capturing photo...", { sessionId, sequenceNumber });
-
-      this.camera.takePicture({ download: true }, (err: any, data: Buffer) => {
-        if (err) {
-          logger.error(`gphoto2 capture failed: ${err?.message || err}`);
-          reject(new Error(`Capture failed: ${err?.message || err}`));
-          return;
-        }
-
-        try {
-          const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
-          const imagePath = path.join(env.tempPhotoPath, filename);
-
-          if (!fs.existsSync(env.tempPhotoPath)) {
-            fs.mkdirSync(env.tempPhotoPath, { recursive: true });
-            initializedDirs.add(env.tempPhotoPath);
-          }
-
-          fs.writeFileSync(imagePath, data);
-
-          logger.info("gphoto2: Photo captured successfully", { imagePath });
-
-          const metadata: CameraMetadata = {
-            model: this.camera.model || "Unknown",
-            iso: "Auto",
-            shutterSpeed: "Auto",
-            aperture: "Auto",
-            focalLength: "Unknown",
-            timestamp: new Date().toISOString(),
-          };
-
-          resolve({ imagePath, metadata });
-        } catch (error: any) {
-          logger.error(`Failed to save photo: ${error.message}`);
-          reject(new Error(`Failed to save photo: ${error.message}`));
-        }
-      });
-    });
   }
 
   private async captureMockPhoto(
@@ -479,7 +495,7 @@ export class CameraService {
 
     return {
       connected: true,
-      model: this.camera?.model || "Canon DSLR",
+      model: this.cameraModel || "Canon DSLR",
       battery: 100,
       storageAvailable: true,
       settings: {
@@ -509,8 +525,8 @@ export class CameraService {
       };
     }
 
-    // TODO: Implement gphoto2 camera configuration
-    logger.warn("Camera configuration not fully implemented for gphoto2");
+    // CLI mode: Configuration not fully implemented
+    logger.warn("Camera configuration not fully implemented for CLI mode");
 
     return {
       iso: "Auto",
@@ -522,9 +538,7 @@ export class CameraService {
   }
 
   async disconnect(): Promise<void> {
-    if (this.camera) {
-      this.camera = null;
-    }
+    await this.stopPreviewStream();
     this.isInitialized = false;
     logger.info("Camera disconnected");
   }
