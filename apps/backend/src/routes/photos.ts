@@ -1,27 +1,24 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { nanoid } from 'nanoid';
-import path from 'path';
-import fs from 'fs/promises';
-import { db } from '../db';
-import { photos, sessions, filters } from '../db/schema';
-import { eq, inArray } from 'drizzle-orm';
-import { HTTP_STATUS, MESSAGES, ENDPOINTS } from '@photonic/config';
-import { logger } from '@photonic/utils';
-import { imageProcessor } from '../services/image-processor';
-import { getCameraService } from '../services/camera-service';
-import { getPreviewStreamManager } from '../services/preview-stream-manager';
-import type {
-  CapturePhotoRequest,
-  ProcessPhotoRequest,
-} from '@photonic/types';
+import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { nanoid } from "nanoid";
+import path from "path";
+import fs from "fs/promises";
+import { db } from "../db";
+import { photos, sessions, filters } from "../db/schema";
+import { eq, inArray } from "drizzle-orm";
+import { HTTP_STATUS, MESSAGES, ENDPOINTS } from "@photonic/config";
+import { logger } from "@photonic/utils";
+import { imageProcessor } from "../services/image-processor";
+import { getCameraService } from "../services/camera-service";
+import { getPreviewStreamManager } from "../services/preview-stream-manager";
+import type { CapturePhotoRequest, ProcessPhotoRequest } from "@photonic/types";
 
 /**
  * Photo Routes
  * Handles photo capture and processing
  */
 export async function photoRoutes(fastify: FastifyInstance) {
-  const photosDir = path.join(process.cwd(), 'data', 'photos');
-  const processedDir = path.join(process.cwd(), 'data', 'processed');
+  const photosDir = path.join(process.cwd(), "data", "photos");
+  const processedDir = path.join(process.cwd(), "data", "processed");
 
   // Ensure directories exist
   await fs.mkdir(photosDir, { recursive: true });
@@ -39,7 +36,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
           sequenceNumber?: number;
           retakePhotoId?: string;
         };
-        logger.info('Capturing photo', {
+        logger.info("Capturing photo", {
           sessionId: body.sessionId,
           sequenceNumber: body.sequenceNumber,
           retakePhotoId: body.retakePhotoId,
@@ -53,7 +50,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (!session) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'Session not found',
+            message: "Session not found",
           });
         }
 
@@ -69,7 +66,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         // stopAll() awaits the loop exit which includes exiting LiveView
         const previewManager = getPreviewStreamManager();
         if (previewManager.clientCount > 0) {
-          logger.info('Stopping preview stream for capture...');
+          logger.info("Stopping preview stream for capture...");
           await previewManager.stopAll();
         }
 
@@ -79,11 +76,15 @@ export async function photoRoutes(fastify: FastifyInstance) {
           const existingPhotos = await db.query.photos.findMany({
             where: eq(photos.sessionId, body.sessionId),
           });
-          sequenceNumber = existingPhotos.filter((p) => p.sequenceNumber <= 3).length + 1;
+          sequenceNumber =
+            existingPhotos.filter((p) => p.sequenceNumber <= 3).length + 1;
         }
 
         // Capture photo using local camera service
-        const captureResult = await cameraService.capturePhoto(body.sessionId, sequenceNumber!);
+        const captureResult = await cameraService.capturePhoto(
+          body.sessionId,
+          sequenceNumber!,
+        );
 
         // Handle retake mode or new photo
         if (body.retakePhotoId) {
@@ -95,7 +96,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
           if (!existingPhoto) {
             return reply.code(HTTP_STATUS.NOT_FOUND).send({
               success: false,
-              message: 'Photo to retake not found',
+              message: "Photo to retake not found",
             });
           }
 
@@ -106,7 +107,8 @@ export async function photoRoutes(fastify: FastifyInstance) {
           await fs.copyFile(captureResult.imagePath, originalPath);
 
           // Update photo record
-          await db.update(photos)
+          await db
+            .update(photos)
             .set({
               originalPath,
               captureTime: new Date(),
@@ -118,11 +120,13 @@ export async function photoRoutes(fastify: FastifyInstance) {
             where: eq(photos.id, body.retakePhotoId),
           });
 
-          logger.info('Photo retaken successfully', { photoId: body.retakePhotoId });
+          logger.info("Photo retaken successfully", {
+            photoId: body.retakePhotoId,
+          });
 
           return reply.code(HTTP_STATUS.OK).send({
             success: true,
-            message: 'Photo retaken successfully',
+            message: "Photo retaken successfully",
             data: {
               photo: updatedPhoto,
               captureUrl: `/data/photos/${originalFilename}`,
@@ -146,7 +150,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
             templateId: body.templateId || null,
             filterId: body.filterId || null,
             sequenceNumber,
-            captureTime: new Date().toISOString(),
+            captureTime: new Date(),
             metadata: captureResult.metadata as any,
           };
 
@@ -160,7 +164,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
             });
           }
 
-          logger.info('Photo captured successfully', { photoId });
+          logger.info("Photo captured successfully", { photoId });
 
           return reply.code(HTTP_STATUS.CREATED).send({
             success: true,
@@ -172,17 +176,17 @@ export async function photoRoutes(fastify: FastifyInstance) {
           });
         }
       } catch (error) {
-        logger.error('Failed to capture photo', {
+        logger.error("Failed to capture photo", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           message:
-            error instanceof Error ? error.message : 'Failed to capture photo',
+            error instanceof Error ? error.message : "Failed to capture photo",
         });
       }
-    }
+    },
   );
 
   /**
@@ -201,7 +205,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
           retakePhotoId?: string; // ID of photo being retaken
         };
 
-        logger.info('Uploading browser-captured photo', {
+        logger.info("Uploading browser-captured photo", {
           sessionId: body.sessionId,
           hasImageData: !!body.imageData,
           imageDataLength: body.imageData?.length || 0,
@@ -215,20 +219,23 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (!session) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'Session not found',
+            message: "Session not found",
           });
         }
 
         if (!body.imageData) {
           return reply.code(HTTP_STATUS.BAD_REQUEST).send({
             success: false,
-            message: 'No image data provided',
+            message: "No image data provided",
           });
         }
 
         // Decode base64 image
-        const base64Data = body.imageData.replace(/^data:image\/\w+;base64,/, '');
-        const imageBuffer = Buffer.from(base64Data, 'base64');
+        const base64Data = body.imageData.replace(
+          /^data:image\/\w+;base64,/,
+          "",
+        );
+        const imageBuffer = Buffer.from(base64Data, "base64");
 
         // Calculate sequence number based on existing raw photos (exclude composites)
         const existingPhotos = await db.query.photos.findMany({
@@ -240,15 +247,17 @@ export async function photoRoutes(fastify: FastifyInstance) {
 
         // Handle retake mode: update existing photo instead of creating new one
         if (body.retakePhotoId) {
-          const existingPhoto = existingPhotos.find((p) => p.id === body.retakePhotoId);
+          const existingPhoto = existingPhotos.find(
+            (p) => p.id === body.retakePhotoId,
+          );
           if (!existingPhoto) {
             return reply.code(HTTP_STATUS.NOT_FOUND).send({
               success: false,
-              message: 'Photo to retake not found',
+              message: "Photo to retake not found",
             });
           }
 
-          logger.info('Retaking photo', {
+          logger.info("Retaking photo", {
             sessionId: body.sessionId,
             retakePhotoId: body.retakePhotoId,
             existingSequence: existingPhoto.sequenceNumber,
@@ -283,14 +292,14 @@ export async function photoRoutes(fastify: FastifyInstance) {
             processedPath: null,
           };
 
-          logger.info('Photo retake completed', {
+          logger.info("Photo retake completed", {
             photoId: body.retakePhotoId,
             newPath: retakePath,
           });
 
           return reply.code(HTTP_STATUS.OK).send({
             success: true,
-            message: 'Photo retaken successfully',
+            message: "Photo retaken successfully",
             data: {
               photo: updatedPhoto,
               captureUrl: `/data/photos/${retakeFilename}`,
@@ -301,14 +310,17 @@ export async function photoRoutes(fastify: FastifyInstance) {
         // If session already has 3 photos and NOT a retake, return the last one as success
         // This prevents retry loops while allowing the frontend to continue
         if (rawPhotos.length >= 3) {
-          logger.info('Session already has 3 photos, returning existing photo', {
-            sessionId: body.sessionId,
-            existingCount: rawPhotos.length,
-          });
+          logger.info(
+            "Session already has 3 photos, returning existing photo",
+            {
+              sessionId: body.sessionId,
+              existingCount: rawPhotos.length,
+            },
+          );
           const lastPhoto = rawPhotos[rawPhotos.length - 1];
           return reply.code(HTTP_STATUS.OK).send({
             success: true,
-            message: 'Photo already captured',
+            message: "Photo already captured",
             data: {
               photo: lastPhoto,
               captureUrl: `/data/photos/${path.basename(lastPhoto.originalPath)}`,
@@ -345,7 +357,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
           });
         }
 
-        logger.info('Browser photo uploaded successfully', { photoId });
+        logger.info("Browser photo uploaded successfully", { photoId });
 
         return reply.code(HTTP_STATUS.CREATED).send({
           success: true,
@@ -356,17 +368,17 @@ export async function photoRoutes(fastify: FastifyInstance) {
           },
         });
       } catch (error) {
-        logger.error('Failed to upload photo', {
+        logger.error("Failed to upload photo", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           message:
-            error instanceof Error ? error.message : 'Failed to upload photo',
+            error instanceof Error ? error.message : "Failed to upload photo",
         });
       }
-    }
+    },
   );
 
   /**
@@ -377,13 +389,13 @@ export async function photoRoutes(fastify: FastifyInstance) {
     `${ENDPOINTS.PHOTOS}/:photoId/process`,
     async (
       request: FastifyRequest<{ Params: { photoId: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       try {
         const { photoId } = request.params;
         const body = request.body as ProcessPhotoRequest;
 
-        logger.info('Processing photo', { photoId, body });
+        logger.info("Processing photo", { photoId, body });
 
         // Verify photo exists
         const photo = await db.query.photos.findFirst({
@@ -393,7 +405,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (!photo) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'Photo not found',
+            message: "Photo not found",
           });
         }
 
@@ -402,7 +414,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
 
         const processedFilename = path.basename(processedPath);
 
-        logger.info('Photo processed successfully', { photoId, processedPath });
+        logger.info("Photo processed successfully", { photoId, processedPath });
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
@@ -413,17 +425,17 @@ export async function photoRoutes(fastify: FastifyInstance) {
           },
         });
       } catch (error) {
-        logger.error('Failed to process photo', {
+        logger.error("Failed to process photo", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           message:
-            error instanceof Error ? error.message : 'Failed to process photo',
+            error instanceof Error ? error.message : "Failed to process photo",
         });
       }
-    }
+    },
   );
 
   /**
@@ -437,13 +449,13 @@ export async function photoRoutes(fastify: FastifyInstance) {
         Params: { photoId: string };
         Body: { filterId: string };
       }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       try {
         const { photoId } = request.params;
         const { filterId } = request.body;
 
-        logger.info('Generating filter preview', { photoId, filterId });
+        logger.info("Generating filter preview", { photoId, filterId });
 
         // Get photo
         const photo = await db.query.photos.findFirst({
@@ -453,14 +465,14 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (!photo) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'Photo not found',
+            message: "Photo not found",
           });
         }
 
         // If no filter or 'none', return original photo
-        if (!filterId || filterId === 'none') {
+        if (!filterId || filterId === "none") {
           const imageBuffer = await fs.readFile(photo.originalPath);
-          return reply.type('image/jpeg').send(imageBuffer);
+          return reply.type("image/jpeg").send(imageBuffer);
         }
 
         // Get filter
@@ -471,29 +483,29 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (!filter) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'Filter not found',
+            message: "Filter not found",
           });
         }
 
         // Generate preview with filter
         const previewBuffer = await imageProcessor.generatePhotoFilterPreview(
           photo.originalPath,
-          filter.filterConfig as import('@photonic/types').FilterConfig
+          filter.filterConfig as import("@photonic/types").FilterConfig,
         );
 
         // Return as JPEG image
-        return reply.type('image/jpeg').send(previewBuffer);
+        return reply.type("image/jpeg").send(previewBuffer);
       } catch (error) {
-        logger.error('Failed to generate filter preview', {
+        logger.error("Failed to generate filter preview", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          message: 'Failed to generate filter preview',
+          message: "Failed to generate filter preview",
         });
       }
-    }
+    },
   );
 
   /**
@@ -510,12 +522,12 @@ export async function photoRoutes(fastify: FastifyInstance) {
           filterId?: string;
         };
       }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       try {
         const { sessionId, templateId, filterId } = request.body;
 
-        logger.info('Creating A3 composite', {
+        logger.info("Creating A3 composite", {
           sessionId,
           templateId,
           filterId,
@@ -529,7 +541,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (!session) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'Session not found',
+            message: "Session not found",
           });
         }
 
@@ -537,7 +549,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         const compositePhotoId = await imageProcessor.createA3Composite(
           sessionId,
           templateId,
-          filterId
+          filterId,
         );
 
         // Fetch the created composite photo record
@@ -545,31 +557,33 @@ export async function photoRoutes(fastify: FastifyInstance) {
           where: eq(photos.id, compositePhotoId),
         });
 
-        logger.info('A3 composite created successfully', {
+        logger.info("A3 composite created successfully", {
           sessionId,
           compositePhotoId,
         });
 
         return reply.code(HTTP_STATUS.CREATED).send({
           success: true,
-          message: 'A3 composite created successfully',
+          message: "A3 composite created successfully",
           data: {
             photo: compositePhoto,
             compositeUrl: `/data/processed/${path.basename(compositePhoto!.processedPath!)}`,
           },
         });
       } catch (error) {
-        logger.error('Failed to create A3 composite', {
+        logger.error("Failed to create A3 composite", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           message:
-            error instanceof Error ? error.message : 'Failed to create A3 composite',
+            error instanceof Error
+              ? error.message
+              : "Failed to create A3 composite",
         });
       }
-    }
+    },
   );
 
   /**
@@ -580,11 +594,11 @@ export async function photoRoutes(fastify: FastifyInstance) {
     `${ENDPOINTS.PHOTOS}/session/:sessionId`,
     async (
       request: FastifyRequest<{ Params: { sessionId: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       try {
         const { sessionId } = request.params;
-        logger.info('Fetching photos for session', { sessionId });
+        logger.info("Fetching photos for session", { sessionId });
 
         const sessionPhotos = await db.query.photos.findMany({
           where: eq(photos.sessionId, sessionId),
@@ -596,16 +610,16 @@ export async function photoRoutes(fastify: FastifyInstance) {
           data: sessionPhotos,
         });
       } catch (error) {
-        logger.error('Failed to fetch session photos', {
+        logger.error("Failed to fetch session photos", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          message: 'Failed to fetch session photos',
+          message: "Failed to fetch session photos",
         });
       }
-    }
+    },
   );
 
   /**
@@ -616,11 +630,11 @@ export async function photoRoutes(fastify: FastifyInstance) {
     `${ENDPOINTS.PHOTOS}/:photoId`,
     async (
       request: FastifyRequest<{ Params: { photoId: string } }>,
-      reply: FastifyReply
+      reply: FastifyReply,
     ) => {
       try {
         const { photoId } = request.params;
-        logger.info('Fetching photo', { photoId });
+        logger.info("Fetching photo", { photoId });
 
         const photo = await db.query.photos.findFirst({
           where: eq(photos.id, photoId),
@@ -629,7 +643,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (!photo) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'Photo not found',
+            message: "Photo not found",
           });
         }
 
@@ -638,16 +652,16 @@ export async function photoRoutes(fastify: FastifyInstance) {
           data: photo,
         });
       } catch (error) {
-        logger.error('Failed to fetch photo', {
+        logger.error("Failed to fetch photo", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          message: 'Failed to fetch photo',
+          message: "Failed to fetch photo",
         });
       }
-    }
+    },
   );
 
   /**
@@ -660,10 +674,10 @@ export async function photoRoutes(fastify: FastifyInstance) {
       try {
         const body = request.body as {
           photoIds: string[];
-          layout?: '2x2' | '3x1' | '4x1';
+          layout?: "2x2" | "3x1" | "4x1";
         };
 
-        logger.info('Creating collage', {
+        logger.info("Creating collage", {
           photoCount: body.photoIds.length,
           layout: body.layout,
         });
@@ -677,18 +691,18 @@ export async function photoRoutes(fastify: FastifyInstance) {
         if (photoRecords.length !== body.photoIds.length) {
           return reply.code(HTTP_STATUS.NOT_FOUND).send({
             success: false,
-            message: 'One or more photos not found',
+            message: "One or more photos not found",
           });
         }
 
         // Reorder to match requested order
-        const orderedPhotos = body.photoIds.map(id =>
-          photoRecords.find(p => p.id === id)!
+        const orderedPhotos = body.photoIds.map(
+          (id) => photoRecords.find((p) => p.id === id)!,
         );
 
         // Use processed paths if available, otherwise original
         const photoPaths = orderedPhotos.map(
-          (p) => p.processedPath || p.originalPath
+          (p) => p.processedPath || p.originalPath,
         );
 
         // Generate collage
@@ -698,32 +712,32 @@ export async function photoRoutes(fastify: FastifyInstance) {
         await imageProcessor.createCollage(
           photoPaths,
           collagePath,
-          body.layout || '2x2'
+          body.layout || "2x2",
         );
 
-        logger.info('Collage created successfully', { collagePath });
+        logger.info("Collage created successfully", { collagePath });
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
-          message: 'Collage created successfully',
+          message: "Collage created successfully",
           data: {
             collageUrl: `/data/processed/${collageFilename}`,
             collagePath,
           },
         });
       } catch (error) {
-        logger.error('Failed to create collage', {
+        logger.error("Failed to create collage", {
           error: error instanceof Error ? error.message : String(error),
         });
 
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           message:
-            error instanceof Error ? error.message : 'Failed to create collage',
+            error instanceof Error ? error.message : "Failed to create collage",
         });
       }
-    }
+    },
   );
 
-  logger.info('Photo routes registered');
+  logger.info("Photo routes registered");
 }

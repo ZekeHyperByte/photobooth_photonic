@@ -1,11 +1,11 @@
-import { ServerResponse } from 'http';
-import { createLogger } from '@photonic/utils';
-import { getCameraService } from './camera-service';
-import { nanoid } from 'nanoid';
+import { ServerResponse } from "http";
+import { createLogger } from "@photonic/utils";
+import { getCameraService } from "./camera-service";
+import { nanoid } from "nanoid";
 
-const logger = createLogger('preview-stream');
+const logger = createLogger("preview-stream");
 
-const BOUNDARY = 'frame';
+const BOUNDARY = "frame";
 const FRAME_INTERVAL_MS = 100; // ~10fps
 
 interface Client {
@@ -53,7 +53,7 @@ class PreviewStreamManager {
     if (this.loopStopped) {
       await this.loopStopped;
     }
-    logger.info('All preview clients stopped');
+    logger.info("All preview clients stopped");
   }
 
   get clientCount(): number {
@@ -64,49 +64,74 @@ class PreviewStreamManager {
     if (this.loopRunning) return;
 
     this.loopRunning = true;
-    this.loopStopped = new Promise(resolve => {
+    this.loopStopped = new Promise((resolve) => {
       this.loopStoppedResolve = resolve;
     });
     const cameraService = getCameraService();
     cameraService.setStreaming(true);
 
-    logger.info('Preview loop started');
+    logger.info("Preview loop started");
 
     const run = async () => {
-      await cameraService.enterLiveView();
-      // Canon needs time to initialize LiveView before frames are available
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        await cameraService.enterLiveView();
+        // Canon needs time to initialize LiveView before frames are available
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      let frameCount = 0;
-      let errorCount = 0;
-      while (this.loopRunning && this.clients.size > 0) {
-        try {
-          const frame = await cameraService.getPreviewFrame();
-          this.broadcastFrame(frame);
-          frameCount++;
-          if (frameCount === 1) {
-            logger.info(`First preview frame sent (${frame.length} bytes)`);
+        let frameCount = 0;
+        let errorCount = 0;
+        let consecutiveErrors = 0;
+        const MAX_CONSECUTIVE_ERRORS = 5;
+
+        while (this.loopRunning && this.clients.size > 0) {
+          try {
+            const frame = await cameraService.getPreviewFrame();
+            this.broadcastFrame(frame);
+            frameCount++;
+            consecutiveErrors = 0; // Reset on success
+            if (frameCount === 1) {
+              logger.info(`First preview frame sent (${frame.length} bytes)`);
+            }
+          } catch (err: any) {
+            errorCount++;
+            consecutiveErrors++;
+            if (
+              errorCount <= 3 ||
+              consecutiveErrors >= MAX_CONSECUTIVE_ERRORS
+            ) {
+              logger.error(
+                `Preview frame error (${errorCount}, consecutive: ${consecutiveErrors}): ${err?.message || err}`,
+              );
+            }
+
+            // If too many consecutive errors, exit the loop to allow recovery
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+              logger.error(
+                `Too many consecutive preview errors (${consecutiveErrors}), stopping preview stream`,
+              );
+              break;
+            }
           }
-        } catch (err: any) {
-          errorCount++;
-          if (errorCount <= 3) {
-            logger.error(`Preview frame error (${errorCount}): ${err?.message || err}`);
-          }
+
+          // Sleep between frames
+          await new Promise((resolve) =>
+            setTimeout(resolve, FRAME_INTERVAL_MS),
+          );
         }
-
-        // Sleep between frames
-        await new Promise(resolve => setTimeout(resolve, FRAME_INTERVAL_MS));
+        logger.info(
+          `Preview loop stats: ${frameCount} frames sent, ${errorCount} errors`,
+        );
+      } finally {
+        this.loopRunning = false;
+        cameraService.setStreaming(false);
+        await cameraService.exitLiveView();
+        // Canon needs more time to transition out of LiveView before capture
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        logger.info("Preview loop ended");
+        this.loopStoppedResolve?.();
+        this.loopStopped = null;
+        this.loopStoppedResolve = null;
       }
-      logger.info(`Preview loop stats: ${frameCount} frames sent, ${errorCount} errors`);
-      this.loopRunning = false;
-      cameraService.setStreaming(false);
-      await cameraService.exitLiveView();
-      // Canon needs time to transition out of LiveView before capture
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      logger.info('Preview loop ended');
-      this.loopStoppedResolve?.();
-      this.loopStopped = null;
-      this.loopStoppedResolve = null;
     };
 
     run().catch(async (err) => {
@@ -114,8 +139,8 @@ class PreviewStreamManager {
       this.loopRunning = false;
       cameraService.setStreaming(false);
       await cameraService.exitLiveView();
-      // Canon needs time to transition out of LiveView before capture
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Canon needs more time to transition out of LiveView before capture
+      await new Promise((resolve) => setTimeout(resolve, 3000));
       this.loopStoppedResolve?.();
       this.loopStopped = null;
       this.loopStoppedResolve = null;
@@ -139,7 +164,7 @@ class PreviewStreamManager {
       try {
         client.res.write(header);
         client.res.write(frame);
-        client.res.write('\r\n');
+        client.res.write("\r\n");
       } catch {
         deadClients.push(id);
       }
