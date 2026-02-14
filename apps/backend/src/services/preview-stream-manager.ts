@@ -6,7 +6,9 @@ import { nanoid } from "nanoid";
 const logger = createLogger("preview-stream");
 
 const BOUNDARY = "frame";
-const FRAME_INTERVAL_MS = 100; // ~10fps
+const FRAME_INTERVAL_MS = 200; // ~5fps (more stable for Canon 550D)
+const WARMUP_FRAMES = 5; // Discard first N frames (frame warming)
+const LIVEVIEW_INIT_DELAY_MS = 7000; // Canon 550D needs 7s for stable LiveView
 
 interface Client {
   id: string;
@@ -75,22 +77,73 @@ class PreviewStreamManager {
     const run = async () => {
       try {
         await cameraService.enterLiveView();
-        // Canon 550D needs more time to initialize LiveView before frames are available
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        // Canon 550D needs 7s for stable LiveView initialization
+        logger.info(
+          `Waiting ${LIVEVIEW_INIT_DELAY_MS}ms for LiveView stabilization...`,
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, LIVEVIEW_INIT_DELAY_MS),
+        );
 
         let frameCount = 0;
         let errorCount = 0;
         let consecutiveErrors = 0;
         const MAX_CONSECUTIVE_ERRORS = 5;
+        let warmupCounter = 0;
+        let hasWarmedUp = false;
 
         while (this.loopRunning && this.clients.size > 0) {
           try {
-            const frame = await cameraService.getPreviewFrame();
+            // Retry logic: try up to 3 times to get a valid frame
+            let frame: Buffer | null = null;
+            let retries = 0;
+            const MAX_RETRIES = 3;
+
+            while (retries < MAX_RETRIES && !frame) {
+              try {
+                frame = await cameraService.getPreviewFrame();
+              } catch (retryErr: any) {
+                retries++;
+                if (retries < MAX_RETRIES) {
+                  logger.warn(
+                    `Frame capture failed (retry ${retries}/${MAX_RETRIES}): ${retryErr.message}`,
+                  );
+                  await new Promise((resolve) => setTimeout(resolve, 100));
+                } else {
+                  throw retryErr;
+                }
+              }
+            }
+
+            if (!frame) {
+              throw new Error("Failed to capture frame after retries");
+            }
+
+            // Frame warming: discard first WARMUP_FRAMES frames
+            if (!hasWarmedUp) {
+              warmupCounter++;
+              if (warmupCounter <= WARMUP_FRAMES) {
+                logger.info(
+                  `Frame warming: discarding frame ${warmupCounter}/${WARMUP_FRAMES} (${frame.length} bytes)`,
+                );
+                consecutiveErrors = 0;
+                await new Promise((resolve) =>
+                  setTimeout(resolve, FRAME_INTERVAL_MS),
+                );
+                continue;
+              } else {
+                hasWarmedUp = true;
+                logger.info(`Frame warming complete. Starting stream...`);
+              }
+            }
+
             this.broadcastFrame(frame);
             frameCount++;
             consecutiveErrors = 0; // Reset on success
             if (frameCount === 1) {
-              logger.info(`First preview frame sent (${frame.length} bytes)`);
+              logger.info(
+                `First preview frame broadcast (${frame.length} bytes)`,
+              );
             }
           } catch (err: any) {
             errorCount++;
@@ -119,7 +172,7 @@ class PreviewStreamManager {
           );
         }
         logger.info(
-          `Preview loop stats: ${frameCount} frames sent, ${errorCount} errors`,
+          `Preview loop stats: ${frameCount} frames sent, ${errorCount} errors (warmed up: ${hasWarmedUp})`,
         );
       } finally {
         this.loopRunning = false;
