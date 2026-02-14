@@ -288,8 +288,8 @@ export class CameraService {
     if (wasStreaming) {
       logger.info("Stopping preview for capture (USB exclusivity)...");
       await this.stopPreviewStream();
-      // Wait for camera to settle
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Wait for camera to settle (increased to 2000ms for reliable USB transition)
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
     const MAX_RETRIES = 3;
@@ -325,7 +325,12 @@ export class CameraService {
         // Restart preview if it was running
         if (wasStreaming) {
           logger.info("Restarting preview stream after capture...");
-          // Preview will be restarted by preview-stream-manager
+          // Wait for camera to settle before restarting preview
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          // Import and restart preview via PreviewStreamManager
+          const { getPreviewStreamManager } =
+            await import("./preview-stream-manager");
+          getPreviewStreamManager().restartPreview();
         }
 
         const metadata: CameraMetadata = {
@@ -353,6 +358,12 @@ export class CameraService {
           // Restart preview if it was running (even on error)
           if (wasStreaming) {
             logger.info("Restarting preview stream after capture error...");
+            // Wait for camera to settle before restarting preview
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            // Import and restart preview via PreviewStreamManager
+            const { getPreviewStreamManager } =
+              await import("./preview-stream-manager");
+            getPreviewStreamManager().restartPreview();
           }
           throw err;
         }

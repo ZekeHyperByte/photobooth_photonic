@@ -62,13 +62,8 @@ export async function photoRoutes(fastify: FastifyInstance) {
           await cameraService.initialize();
         }
 
-        // Stop preview stream before capture (gphoto2 is single-threaded over USB)
-        // stopAll() awaits the loop exit which includes exiting LiveView
-        const previewManager = getPreviewStreamManager();
-        if (previewManager.clientCount > 0) {
-          logger.info("Stopping preview stream for capture...");
-          await previewManager.stopAll();
-        }
+        // Preview stream is stopped by camera-service.ts to avoid duplicate stops
+        // Camera service handles USB exclusivity and will restart preview after capture
 
         // Use provided sequence number or calculate based on existing photos
         let sequenceNumber = body.sequenceNumber;

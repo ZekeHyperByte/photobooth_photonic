@@ -63,6 +63,19 @@ class PreviewStreamManager {
     return this.clients.size;
   }
 
+  /**
+   * Restart preview stream if there are connected clients
+   * Used after capture to resume preview
+   */
+  restartPreview(): void {
+    if (this.clients.size > 0 && !this.loopRunning) {
+      logger.info(
+        `Restarting preview stream (${this.clients.size} clients connected)`,
+      );
+      this.startLoop();
+    }
+  }
+
   private startLoop(): void {
     if (this.loopRunning) return;
 
