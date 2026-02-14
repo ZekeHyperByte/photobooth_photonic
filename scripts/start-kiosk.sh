@@ -6,6 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND_DIR="$PROJECT_DIR/apps/backend"
 
+# Kill gvfs-gphoto2-volume-monitor — it grabs the camera USB device
+# and prevents gphoto2 from claiming it ("Device or resource busy")
+killall gvfs-gphoto2-volume-monitor 2>/dev/null && echo "Killed gvfs-gphoto2-volume-monitor"
+
 # Start backend
 echo "Starting Photonic backend..."
 cd "$BACKEND_DIR"
