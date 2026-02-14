@@ -70,7 +70,7 @@ export class CameraService {
 
   private async detectCamera(): Promise<void> {
     try {
-      const { stdout } = await execAsync("gphoto2 --auto-detect");
+      const { stdout } = await execAsync("/usr/bin/gphoto2 --auto-detect");
       if (stdout.includes("Canon") || stdout.includes("Canon EOS")) {
         // Extract camera model
         const lines = stdout.split("\n");
@@ -125,18 +125,18 @@ export class CameraService {
 
     return new Promise((resolve, reject) => {
       try {
-        // Spawn gphoto2 to capture movie
+        // Spawn gphoto2 to capture movie (use full path)
         this.previewProcess = spawn(
-          "gphoto2",
+          "/usr/bin/gphoto2",
           ["--capture-movie", "--stdout"],
           {
             stdio: ["ignore", "pipe", "pipe"],
           },
         );
 
-        // Spawn ffmpeg to convert to MJPEG
+        // Spawn ffmpeg to convert to MJPEG (use full path)
         this.ffmpegProcess = spawn(
-          "ffmpeg",
+          "/usr/bin/ffmpeg",
           [
             "-i",
             "-", // Input from stdin
@@ -306,7 +306,7 @@ export class CameraService {
         });
 
         // Capture and download in one command
-        const command = `gphoto2 --capture-image-and-download --filename "${imagePath}" --force-overwrite`;
+        const command = `/usr/bin/gphoto2 --capture-image-and-download --filename "${imagePath}" --force-overwrite`;
 
         await execAsync(command, { timeout: 15000 });
 
