@@ -33,6 +33,8 @@ export class CameraService {
   private cameraMode: "dslr" | "webcam" | "mock" = "mock";
   private webcamDevice: string = "/dev/video0";
   private _isStreaming = false;
+  private liveViewConfigName: string | null = null;
+  private availableConfigs: string[] = [];
 
   constructor() {
     if (env.useWebcam) {
@@ -108,6 +110,117 @@ export class CameraService {
   }
 
   /**
+   * Detect available camera configs and identify the correct LiveView config name
+   */
+  private async detectLiveViewConfig(): Promise<string | null> {
+    if (!this.camera) return null;
+
+    try {
+      const configs = await new Promise<string[]>((resolve) => {
+        this.camera.listConfig((err: any, configs: string[]) => {
+          if (err) {
+            logger.warn("Failed to list camera configs:", err);
+            resolve([]);
+          } else {
+            resolve(configs || []);
+          }
+        });
+      });
+
+      this.availableConfigs = configs;
+      logger.info("Available camera configs:", configs.length);
+
+      // Check for LiveView-related configs in order of preference
+      const liveViewConfigs = ["viewfinder", "eosviewfinder"];
+      for (const config of liveViewConfigs) {
+        if (
+          configs.some((c) => c.toLowerCase().includes(config.toLowerCase()))
+        ) {
+          logger.info(`Detected LiveView config: ${config}`);
+          return config;
+        }
+      }
+
+      logger.warn("No known LiveView config found in camera");
+      return null;
+    } catch (error) {
+      logger.warn("Error detecting LiveView config:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Set LiveView config value using the detected config name
+   */
+  private async setLiveViewValue(value: number): Promise<boolean> {
+    if (this.cameraMode !== "dslr" || !this.camera) return false;
+
+    // Detect config name if not already done
+    if (!this.liveViewConfigName) {
+      this.liveViewConfigName = await this.detectLiveViewConfig();
+    }
+
+    if (!this.liveViewConfigName) {
+      logger.warn("No LiveView config available on this camera model");
+      return false;
+    }
+
+    return new Promise((resolve) => {
+      this.camera.setConfigValue(this.liveViewConfigName, value, (err: any) => {
+        if (err) {
+          logger.warn(
+            `Failed to set ${this.liveViewConfigName}=${value}:`,
+            err.message,
+          );
+          resolve(false);
+        } else {
+          logger.info(
+            `LiveView ${value === 1 ? "entered" : "exited"} (${this.liveViewConfigName})`,
+          );
+          resolve(true);
+        }
+      });
+    });
+  }
+
+  /**
+   * Try to get preview using gphoto2 CLI as fallback
+   */
+  private async getPreviewViaCLI(): Promise<Buffer> {
+    const tempFile = path.join(env.tempPhotoPath, `preview-${nanoid()}.jpg`);
+
+    try {
+      logger.info("Attempting preview via gphoto2 CLI...");
+      await execAsync(
+        `gphoto2 --capture-preview --filename "${tempFile}" --force-overwrite`,
+        {
+          timeout: 10000,
+        },
+      );
+
+      if (!fs.existsSync(tempFile)) {
+        throw new Error("CLI preview file was not created");
+      }
+
+      const data = await fsPromises.readFile(tempFile);
+      await fsPromises.unlink(tempFile).catch(() => {}); // Clean up
+
+      if (data.length < 100 || data[0] !== 0xff || data[1] !== 0xd8) {
+        throw new Error("CLI preview returned invalid image");
+      }
+
+      logger.info(`CLI preview successful (${data.length} bytes)`);
+      return data;
+    } catch (error: any) {
+      // Clean up temp file on error
+      try {
+        await fsPromises.unlink(tempFile);
+      } catch {}
+      throw new Error(`CLI preview failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Explicitly enter LiveView/viewfinder mode on Canon DSLRs.
    * Must be called before preview frames will return data.
    */
@@ -115,20 +228,13 @@ export class CameraService {
     if (this.cameraMode !== "dslr" || !this.camera) return;
 
     logger.info("Entering LiveView...");
-    await new Promise<void>((resolve) => {
-      this.camera.setConfigValue("eosviewfinder", 1, (err: any) => {
-        if (err) {
-          // Don't fall back to 'viewfinder' — it controls the optical viewfinder, not LiveView.
-          // takePicture({preview:true}) will attempt to enter LiveView implicitly via libgphoto2.
-          logger.warn(
-            `eosviewfinder config failed: ${err?.message || err}. Will rely on implicit LiveView.`,
-          );
-        } else {
-          logger.info("LiveView entered (eosviewfinder)");
-        }
-        resolve();
-      });
-    });
+    const success = await this.setLiveViewValue(1);
+
+    if (!success) {
+      logger.warn(
+        "Could not enter LiveView via config. Will try implicit mode via takePicture.",
+      );
+    }
   }
 
   /**
@@ -139,19 +245,7 @@ export class CameraService {
     if (this.cameraMode !== "dslr" || !this.camera) return;
 
     logger.info("Exiting LiveView...");
-    await new Promise<void>((resolve) => {
-      this.camera.setConfigValue("eosviewfinder", 0, (err: any) => {
-        if (err) {
-          // Don't fall back to 'viewfinder' — it doesn't control LiveView on Canon EOS.
-          logger.warn(
-            `eosviewfinder exit failed: ${err?.message || err}. Camera may need time to settle.`,
-          );
-        } else {
-          logger.info("LiveView exited (eosviewfinder)");
-        }
-        resolve();
-      });
-    });
+    await this.setLiveViewValue(0);
   }
 
   async getPreviewFrame(): Promise<Buffer> {
@@ -172,7 +266,30 @@ export class CameraService {
     return this.getDslrPreviewFrame();
   }
 
-  private getDslrPreviewFrame(): Promise<Buffer> {
+  private async getDslrPreviewFrame(): Promise<Buffer> {
+    // Try Node.js wrapper first
+    try {
+      const frame = await this.getDslrPreviewFrameViaWrapper();
+      return frame;
+    } catch (wrapperError: any) {
+      logger.warn(
+        `Node.js wrapper preview failed: ${wrapperError.message}. Trying CLI fallback...`,
+      );
+
+      // Fallback to CLI command
+      try {
+        const frame = await this.getPreviewViaCLI();
+        return frame;
+      } catch (cliError: any) {
+        logger.error(`CLI preview also failed: ${cliError.message}`);
+        throw new Error(
+          `Preview failed: wrapper error (${wrapperError.message}), CLI error (${cliError.message})`,
+        );
+      }
+    }
+  }
+
+  private getDslrPreviewFrameViaWrapper(): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error("Preview frame timed out (8s)"));

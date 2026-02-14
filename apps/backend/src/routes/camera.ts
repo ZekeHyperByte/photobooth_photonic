@@ -1,14 +1,14 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { getCameraService } from '../services/camera-service';
-import { getPreviewStreamManager } from '../services/preview-stream-manager';
-import { createLogger } from '@photonic/utils';
-import { HTTP_STATUS } from '@photonic/config';
+import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { getCameraService } from "../services/camera-service";
+import { getPreviewStreamManager } from "../services/preview-stream-manager";
+import { createLogger } from "@photonic/utils";
+import { HTTP_STATUS } from "@photonic/config";
 import type {
   CameraCaptureRequest,
   ConfigureCameraRequest,
-} from '@photonic/types';
+} from "@photonic/types";
 
-const logger = createLogger('camera-routes');
+const logger = createLogger("camera-routes");
 
 /**
  * Camera Routes
@@ -20,7 +20,7 @@ export async function cameraRoutes(fastify: FastifyInstance) {
    * MJPEG stream for live camera preview
    */
   fastify.get(
-    '/api/camera/preview',
+    "/api/camera/preview",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const cameraService = getCameraService();
@@ -31,32 +31,32 @@ export async function cameraRoutes(fastify: FastifyInstance) {
 
         const res = reply.raw;
         res.writeHead(200, {
-          'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*',
-          'Pragma': 'no-cache',
-          'Expires': '0',
+          "Content-Type": "multipart/x-mixed-replace; boundary=frame",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+          Pragma: "no-cache",
+          Expires: "0",
         });
 
         const previewManager = getPreviewStreamManager();
         const clientId = previewManager.addClient(res);
 
-        request.raw.on('close', () => {
+        request.raw.on("close", () => {
           previewManager.removeClient(clientId);
         });
 
         // Prevent Fastify from sending its own response
         reply.hijack();
       } catch (error: any) {
-        logger.error('Preview stream failed:', error);
+        logger.error("Preview stream failed:", error);
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          error: 'Preview Failed',
+          error: "Preview Failed",
           message: error.message,
         });
       }
-    }
+    },
   );
 
   /**
@@ -64,20 +64,21 @@ export async function cameraRoutes(fastify: FastifyInstance) {
    * Trigger photo capture
    */
   fastify.post(
-    '/api/camera/capture',
+    "/api/camera/capture",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const { sessionId, sequenceNumber } = request.body as CameraCaptureRequest;
+        const { sessionId, sequenceNumber } =
+          request.body as CameraCaptureRequest;
 
         if (!sessionId || !sequenceNumber) {
           return reply.code(HTTP_STATUS.BAD_REQUEST).send({
             success: false,
-            error: 'Bad Request',
-            message: 'sessionId and sequenceNumber are required',
+            error: "Bad Request",
+            message: "sessionId and sequenceNumber are required",
           });
         }
 
-        logger.info('Capture request:', { sessionId, sequenceNumber });
+        logger.info("Capture request:", { sessionId, sequenceNumber });
 
         const cameraService = getCameraService();
 
@@ -90,12 +91,15 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         // stopAll() awaits the loop exit which includes exiting LiveView
         const previewManager = getPreviewStreamManager();
         if (previewManager.clientCount > 0) {
-          logger.info('Stopping preview stream for capture...');
+          logger.info("Stopping preview stream for capture...");
           await previewManager.stopAll();
         }
 
         // Capture photo
-        const result = await cameraService.capturePhoto(sessionId, sequenceNumber);
+        const result = await cameraService.capturePhoto(
+          sessionId,
+          sequenceNumber,
+        );
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
@@ -105,14 +109,14 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           },
         });
       } catch (error: any) {
-        logger.error('Capture failed:', error);
+        logger.error("Capture failed:", error);
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          error: 'Capture Failed',
+          error: "Capture Failed",
           message: error.message,
         });
       }
-    }
+    },
   );
 
   /**
@@ -120,7 +124,7 @@ export async function cameraRoutes(fastify: FastifyInstance) {
    * Get camera status and settings
    */
   fastify.get(
-    '/api/camera/status',
+    "/api/camera/status",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const cameraService = getCameraService();
@@ -131,14 +135,14 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           data: status,
         });
       } catch (error: any) {
-        logger.error('Failed to get camera status:', error);
+        logger.error("Failed to get camera status:", error);
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          error: 'Status Error',
+          error: "Status Error",
           message: error.message,
         });
       }
-    }
+    },
   );
 
   /**
@@ -146,12 +150,12 @@ export async function cameraRoutes(fastify: FastifyInstance) {
    * Configure camera settings
    */
   fastify.post(
-    '/api/camera/configure',
+    "/api/camera/configure",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const settings = request.body as ConfigureCameraRequest;
 
-        logger.info('Configure request:', settings);
+        logger.info("Configure request:", settings);
 
         const cameraService = getCameraService();
 
@@ -168,14 +172,14 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           },
         });
       } catch (error: any) {
-        logger.error('Configuration failed:', error);
+        logger.error("Configuration failed:", error);
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          error: 'Configuration Failed',
+          error: "Configuration Failed",
           message: error.message,
         });
       }
-    }
+    },
   );
 
   /**
@@ -183,7 +187,7 @@ export async function cameraRoutes(fastify: FastifyInstance) {
    * Detect available cameras
    */
   fastify.get(
-    '/api/camera/detect',
+    "/api/camera/detect",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const cameraService = getCameraService();
@@ -201,15 +205,15 @@ export async function cameraRoutes(fastify: FastifyInstance) {
               ? [
                   {
                     model: status.model,
-                    port: 'usb',
-                    abilities: ['capture', 'preview'],
+                    port: "usb",
+                    abilities: ["capture", "preview"],
                   },
                 ]
               : [],
           },
         });
       } catch (error: any) {
-        logger.error('Detection failed:', error);
+        logger.error("Detection failed:", error);
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
           data: {
@@ -217,7 +221,7 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           },
         });
       }
-    }
+    },
   );
 
   /**
@@ -225,7 +229,7 @@ export async function cameraRoutes(fastify: FastifyInstance) {
    * Get current camera mode
    */
   fastify.get(
-    '/api/camera/mode',
+    "/api/camera/mode",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const cameraService = getCameraService();
@@ -236,15 +240,60 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           data: { mode },
         });
       } catch (error: any) {
-        logger.error('Failed to get camera mode:', error);
+        logger.error("Failed to get camera mode:", error);
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          error: 'Mode Error',
+          error: "Mode Error",
           message: error.message,
         });
       }
-    }
+    },
   );
 
-  logger.info('Camera routes registered');
+  /**
+   * GET /api/camera/diagnostics
+   * Get camera diagnostic information including available configs
+   */
+  fastify.get(
+    "/api/camera/diagnostics",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const cameraService = getCameraService();
+
+        if (!cameraService.isConnected()) {
+          return reply.code(HTTP_STATUS.OK).send({
+            success: true,
+            data: {
+              connected: false,
+              message: "Camera not connected",
+            },
+          });
+        }
+
+        const mode = (cameraService as any).cameraMode;
+        const availableConfigs = (cameraService as any).availableConfigs || [];
+        const liveViewConfigName = (cameraService as any).liveViewConfigName;
+
+        return reply.code(HTTP_STATUS.OK).send({
+          success: true,
+          data: {
+            connected: true,
+            mode,
+            availableConfigs,
+            liveViewConfigName,
+            configCount: availableConfigs.length,
+          },
+        });
+      } catch (error: any) {
+        logger.error("Failed to get camera diagnostics:", error);
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          error: "Diagnostics Error",
+          message: error.message,
+        });
+      }
+    },
+  );
+
+  logger.info("Camera routes registered");
 }
