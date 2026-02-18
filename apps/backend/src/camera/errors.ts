@@ -1,0 +1,281 @@
+/**
+ * Camera error types and rich error context for debugging
+ */
+
+export interface CameraErrorContext {
+  /** Operation being performed when error occurred */
+  operation: string;
+  /** Session ID if applicable */
+  sessionId?: string;
+  /** Photo sequence number if applicable */
+  sequenceNumber?: number;
+  /** Camera state at time of error */
+  cameraState?: string;
+  /** EDSDK error code (hex) */
+  edsErrorCode?: number;
+  /** EDSDK error name */
+  edsErrorName?: string;
+  /** Error timestamp */
+  timestamp: string;
+  /** Stack trace */
+  stack?: string;
+  /** Additional metadata */
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Base camera error class with rich context
+ */
+export class CameraError extends Error {
+  public readonly context: CameraErrorContext;
+
+  constructor(message: string, context: CameraErrorContext) {
+    super(message);
+    this.name = "CameraError";
+    this.context = context;
+
+    // Ensure prototype chain is correct
+    Object.setPrototypeOf(this, CameraError.prototype);
+  }
+
+  /**
+   * Get formatted error details for logging
+   */
+  toJSON(): Record<string, any> {
+    return {
+      name: this.name,
+      message: this.message,
+      context: this.context,
+    };
+  }
+}
+
+/**
+ * EDSDK-specific error with error code translation
+ */
+export class EdsError extends CameraError {
+  constructor(
+    edsErrorCode: number,
+    context: Omit<CameraErrorContext, "edsErrorCode" | "edsErrorName">,
+  ) {
+    const errorName = getEdsErrorName(edsErrorCode);
+    const hexCode = edsErrorCode.toString(16).toUpperCase().padStart(8, "0");
+
+    super(`EDSDK Error: ${errorName} (0x${hexCode})`, {
+      ...context,
+      edsErrorCode,
+      edsErrorName: errorName,
+    });
+
+    this.name = "EdsError";
+    Object.setPrototypeOf(this, EdsError.prototype);
+  }
+}
+
+/**
+ * Camera not initialized error
+ */
+export class CameraNotInitializedError extends CameraError {
+  constructor(operation: string) {
+    super("Camera not initialized", {
+      operation,
+      timestamp: new Date().toISOString(),
+    });
+    this.name = "CameraNotInitializedError";
+    Object.setPrototypeOf(this, CameraNotInitializedError.prototype);
+  }
+}
+
+/**
+ * Camera busy error (for retry logic)
+ */
+export class CameraBusyError extends CameraError {
+  constructor(context: Omit<CameraErrorContext, "timestamp">) {
+    super("Camera is busy", {
+      ...context,
+      timestamp: new Date().toISOString(),
+    });
+    this.name = "CameraBusyError";
+    Object.setPrototypeOf(this, CameraBusyError.prototype);
+  }
+}
+
+/**
+ * Get human-readable EDSDK error name from error code
+ */
+function getEdsErrorName(errorCode: number): string {
+  const errorNames: Record<number, string> = {
+    0x00000000: "EDS_ERR_OK",
+    0x00000001: "EDS_ERR_UNIMPLEMENTED",
+    0x00000002: "EDS_ERR_INTERNAL_ERROR",
+    0x00000003: "EDS_ERR_MEM_ALLOC_FAILED",
+    0x00000004: "EDS_ERR_MEM_FREE_FAILED",
+    0x00000005: "EDS_ERR_OPERATION_CANCELLED",
+    0x00000006: "EDS_ERR_INCOMPATIBLE_VERSION",
+    0x00000007: "EDS_ERR_NOT_SUPPORTED",
+    0x00000008: "EDS_ERR_UNEXPECTED_EXCEPTION",
+    0x00000009: "EDS_ERR_PROTECTION_VIOLATION",
+    0x0000000a: "EDS_ERR_MISSING_SUBCOMPONENT",
+    0x0000000b: "EDS_ERR_SELECTION_UNAVAILABLE",
+    0x0000000c: "EDS_ERR_FUNCTION_NOT_FOUND",
+    0x0000000d: "EDS_ERR_MESSAGE_NOT_CREATED",
+    0x0000000e: "EDS_ERR_STRING_NOT_CREATED",
+    0x0000000f: "EDS_ERR_STRING_TOO_LONG",
+    0x00000010: "EDS_ERR_INVALID_PARAMETER",
+    0x00000011: "EDS_ERR_INVALID_HANDLE",
+    0x00000012: "EDS_ERR_INVALID_POINTER",
+    0x00000013: "EDS_ERR_INVALID_INDEX",
+    0x00000014: "EDS_ERR_INVALID_LENGTH",
+    0x00000015: "EDS_ERR_INVALID_FN_POINTER",
+    0x00000016: "EDS_ERR_INVALID_SORT_FN",
+    0x00000017: "EDS_ERR_INVALID_DEVICE",
+    0x0000001a: "EDS_ERR_DEVICE_NOT_FOUND",
+    0x0000001b: "EDS_ERR_DEVICE_BUSY",
+    0x0000001c: "EDS_ERR_DEVICE_INVALID",
+    0x0000001d: "EDS_ERR_DEVICE_EMERGENCY",
+    0x0000001e: "EDS_ERR_DEVICE_MEMORY_FULL",
+    0x0000001f: "EDS_ERR_DEVICE_INTERNAL_ERROR",
+    0x00000020: "EDS_ERR_DEVICE_INVALID_PARAMETER",
+    0x00000021: "EDS_ERR_DEVICE_NO_DISK",
+    0x00000022: "EDS_ERR_DEVICE_DISK_ERROR",
+    0x00000023: "EDS_ERR_DEVICE_CF_GATE_CHANGED",
+    0x00000024: "EDS_ERR_DEVICE_DIAL_CHANGED",
+    0x00000025: "EDS_ERR_DEVICE_NOT_INSTALLED",
+    0x00000026: "EDS_ERR_DEVICE_STAY_AWAKE",
+    0x00000027: "EDS_ERR_DEVICE_NOT_RELEASED",
+    0x00000028: "EDS_ERR_DEVICE_WAITING",
+    0x0000002b: "EDS_ERR_DEVICE_NOT_LAUNCHED",
+    0x0000002c: "EDS_ERR_DEVICE_NOT_CONNECTED",
+    0x0000002d: "EDS_ERR_DEVICE_VERSION_MISMATCH",
+    0x0000002e: "EDS_ERR_DEVICE_NOT_READY",
+    0x0000002f: "EDS_ERR_DEVICE_ALREADY_REGISTERED",
+    0x00000030: "EDS_ERR_STREAM_NOT_OPENED",
+    0x00000031: "EDS_ERR_STREAM_ALREADY_OPENED",
+    0x00000032: "EDS_ERR_STREAM_CHECKSUM_MISMATCH",
+    0x00000033: "EDS_ERR_STREAM_SEEK_ERROR",
+    0x00000034: "EDS_ERR_STREAM_TELL_ERROR",
+    0x00000035: "EDS_ERR_STREAM_READ_ERROR",
+    0x00000036: "EDS_ERR_STREAM_WRITE_ERROR",
+    0x00000037: "EDS_ERR_STREAM_PERMISSION_ERROR",
+    0x00000038: "EDS_ERR_STREAM_CLOSE_ERROR",
+    0x00000039: "EDS_ERR_STREAM_ALREADY_CLOSED",
+    0x0000003a: "EDS_ERR_FILE_NOT_FOUND",
+    0x0000003b: "EDS_ERR_FILE_TOO_MANY_OPEN",
+    0x0000003c: "EDS_ERR_FILE_ALREADY_EXISTS",
+    0x0000003d: "EDS_ERR_FILE_OPEN_ERROR",
+    0x0000003e: "EDS_ERR_FILE_CLOSE_ERROR",
+    0x0000003f: "EDS_ERR_FILE_SEEK_ERROR",
+    0x00000040: "EDS_ERR_FILE_TELL_ERROR",
+    0x00000041: "EDS_ERR_FILE_READ_ERROR",
+    0x00000042: "EDS_ERR_FILE_WRITE_ERROR",
+    0x00000043: "EDS_ERR_FILE_PERMISSION_ERROR",
+    0x00000044: "EDS_ERR_FILE_DISK_FULL_ERROR",
+    0x00000045: "EDS_ERR_FILE_ALREADY_OPENED",
+    0x00000046: "EDS_ERR_FILE_FORMAT_UNRECOGNIZED",
+    0x00000047: "EDS_ERR_FILE_UNKNOWN_COMPRESSION",
+    0x00000048: "EDS_ERR_IO_PENDING",
+    0x00000049: "EDS_ERR_IO_CANCELLED",
+    0x0000004a: "EDS_ERR_IO_ABORTED",
+    0x0000004b: "EDS_ERR_IO_TIMEOUT",
+    0x0000004c: "EDS_ERR_IO_FAILED",
+    0x0000004d: "EDS_ERR_INVALID_FN_CALL",
+    0x0000004e: "EDS_ERR_INVALID_FN_CALL_2",
+    0x00000050: "EDS_ERR_SESSION_NOT_OPENED",
+    0x00000051: "EDS_ERR_SESSION_ALREADY_OPENED",
+    0x00000052: "EDS_ERR_SESSION terminated",
+    0x00000053: "EDS_ERR_PROP_INVALID",
+    0x00000054: "EDS_ERR_PROP_UNAVAILABLE",
+    0x00000055: "EDS_ERR_PROP_NOT_READY",
+    0x00000056: "EDS_ERR_TRANSACTION_CANCELLED",
+    0x00000057: "EDS_ERR_PTP_PROTOCOL_VERSION_MISMATCH",
+    0x00000058: "EDS_ERR_PTP_UNKNOWN_VENDOR_CODE",
+    0x00000059: "EDS_ERR_PTP_UNKNOWN_OBJECT_PROP_CODE",
+    0x0000005a: "EDS_ERR_PTP_INVALID_DEVICEPROP_FORMAT",
+    0x0000005b: "EDS_ERR_PTP_INVALID_DEVICEPROP_VALUE",
+    0x0000005c: "EDS_ERR_PTP_INVALID_OBJECTPROP_FORMAT",
+    0x0000005d: "EDS_ERR_PTP_INVALID_OBJECTPROP_VALUE",
+    0x0000005e: "EDS_ERR_PTP_INVALID_OBJECTREFERENCE",
+    0x0000005f: "EDS_ERR_PTP_INVALID_PARAMETER",
+    0x00000060: "EDS_ERR_PTP_SESSION_ALREADY_OPENED",
+    0x00000061: "EDS_ERR_PTP_DEVICE_BUSY",
+    0x00000062: "EDS_ERR_PTP_INVALID_PARENT_OBJECT",
+    0x00000063: "EDS_ERR_PTP_INVALID_PROP_FORMAT",
+    0x00000064: "EDS_ERR_PTP_INVALID_PROP_VALUE",
+    0x00000065: "EDS_ERR_PTP_INVALID_DATASET",
+    0x00000066: "EDS_ERR_PTP_SPECIFICATION_BY_FORMAT_UNSUPPORTED",
+    0x00000067: "EDS_ERR_PTP_INVALID_CODE_FORMAT",
+    0x00000068: "EDS_ERR_PTP_UNKNOWN_VENDOR_CODE_2",
+    0x00000069: "EDS_ERR_PTP_CAPTURE_ALREADY_TERMINATED",
+    0x0000006a: "EDS_ERR_PTP_INVALID_PICTSIZE_FORMAT",
+    0x0000006b: "EDS_ERR_PTP_INVALID_TRANSACTIONID",
+    0x0000006c: "EDS_ERR_PTP_INVALID_OBJECTFORMATCODE",
+    0x0000006d: "EDS_ERR_PTP_FULL_DELETE_FAILED",
+    0x0000006e: "EDS_ERR_PTP_FULL_EDIT_FAILED",
+    0x0000006f: "EDS_ERR_PTP_INVALID_OBJECTINFO",
+    0x00000070: "EDS_ERR_PTP_CAPTURE_IN_PROGRESS",
+    0x00000071: "EDS_ERR_PTP_CAPTURE_ALREADY_STARTED",
+    0x00000072: "EDS_ERR_PTP_INVALID_FINGERPRINT",
+    0x00000073: "EDS_ERR_PTP_INVALID_TRUSTLEVEL",
+    0x00000074: "EDS_ERR_PTP_INVALID_IMAGEFORMAT",
+    0x00000075: "EDS_ERR_PTP_UNKNOWN_WIC_FORMAT",
+    0x00000076: "EDS_ERR_PTP_UNKNOWN_VENDOR_CODE_3",
+    0x00000077: "EDS_ERR_PTP_UNKNOWN_OBJECT_PROP_CODE_2",
+    0x00000078: "EDS_ERR_PTP_UNKNOWN_OBJECT_FORMAT",
+    0x00000079: "EDS_ERR_PTP_UNKNOWN_PROP_CODE",
+    0x0000007a: "EDS_ERR_PTP_UNKNOWN_VIEW_FORMAT",
+    0x0000007b: "EDS_ERR_PTP_UNKNOWN_IMAGE_FORMAT",
+    0x0000007c: "EDS_ERR_PTP_UNKNOWN_PROP_VALUE",
+    0x0000007d: "EDS_ERR_PTP_INVALID_DATA_LENGTH",
+    0x0000007e: "EDS_ERR_PTP_INVALID_OPERATION",
+    0x0000007f: "EDS_ERR_PTP_INVALID_FILE_ERROR",
+    0x00000080: "EDS_ERR_HDD_ALREADY_EXISTS",
+    0x00000081: "EDS_ERR_HDD_FORMAT_ERROR",
+    0x00000082: "EDS_ERR_HDD_FULL_ERROR",
+    0x00000083: "EDS_ERR_HDD_CREATE_ERROR",
+    0x00000084: "EDS_ERR_HDD_WRITE_ERROR",
+    0x00000085: "EDS_ERR_HDD_READ_ERROR",
+    0x00000086: "EDS_ERR_HDD_DELETE_ERROR",
+    0x00000087: "EDS_ERR_HDD_FORMAT_NOT_SUPPORTED",
+    0x00000088: "EDS_ERR_HDD_UNKNOWN_FILESYSTEM",
+    0x00000089: "EDS_ERR_HDD_FULL_ERROR_2",
+    0x0000008a: "EDS_ERR_HDD_CREATE_ERROR_2",
+    0x0000008b: "EDS_ERR_HDD_WRITE_ERROR_2",
+    0x0000008c: "EDS_ERR_HDD_READ_ERROR_2",
+    0x0000008d: "EDS_ERR_HDD_DELETE_ERROR_2",
+    0x0000008e: "EDS_ERR_HDD_FORMAT_NOT_SUPPORTED_2",
+    0x0000008f: "EDS_ERR_HDD_UNKNOWN_FILESYSTEM_2",
+    0x000000a0: "EDS_ERR_STI_UNKNOWN",
+    0x000000a1: "EDS_ERR_STI_INTERNAL_ERROR",
+    0x000000a2: "EDS_ERR_STI_DEVICE_CREATE_ERROR",
+    0x000000a3: "EDS_ERR_STI_DEVICE_RELEASE_ERROR",
+    0x000000a4: "EDS_ERR_DEVICE_NOT_LAUNCHED",
+    0x000000b0: "EDS_ERR_ENUM_NA",
+    0x000000b1: "EDS_ERR_INVALID_FN_CALL",
+    0x000000b2: "EDS_ERR_HANDLE_NOT_FOUND",
+    0x000000b3: "EDS_ERR_INVALID_ID",
+    0x000000b4: "EDS_ERR_INVALID_CODE",
+    0x000000b5: "EDS_ERR_INVALID_STRAGE_ID",
+    0x000000b6: "EDS_ERR_INVALID_DEVICE",
+    0x000000c0: "EDS_ERR_INVALID_POINTER",
+    0x000000c1: "EDS_ERR_INVALID_FN_CALL_3",
+    0x000000c2: "EDS_ERR_INVALID_SORT_FN_2",
+    0x000000c3: "EDS_ERR_INVALID_DEVICE_2",
+    0x000000c4: "EDS_ERR_INVALID_DEVICEPROP_VALUE",
+    0x000000c5: "EDS_ERR_INVALID_FORMAT",
+    0x000000c6: "EDS_ERR_INVALID_CODE_2",
+    0x000000c7: "EDS_ERR_INVALID_PARAMETER_2",
+    0x000000c8: "EDS_ERR_INVALID_STRAGE_ID_2",
+    0x000000c9: "EDS_ERR_INVALID_DEVICE_3",
+    0x000000ca: "EDS_ERR_INVALID_DEVICEPROP_VALUE_2",
+    0x000000cb: "EDS_ERR_INVALID_FORMAT_2",
+    0x000000cc: "EDS_ERR_INVALID_CODE_3",
+    0x000000cd: "EDS_ERR_INVALID_PARAMETER_3",
+    0x000000ce: "EDS_ERR_INVALID_STRAGE_ID_3",
+    0x000000d0: "EDS_ERR_LAST_GENERIC_ERROR_PLUS_ONE",
+  };
+
+  return (
+    errorNames[errorCode] ||
+    `Unknown Error (0x${errorCode.toString(16).toUpperCase()})`
+  );
+}

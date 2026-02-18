@@ -9,11 +9,17 @@ import path from "path";
 import fs from "fs";
 import { promises as fsPromises } from "fs";
 import { nanoid } from "nanoid";
-import { spawn, exec } from "child_process";
-import { promisify } from "util";
-import sharp from "sharp";
+import { Readable } from "stream";
 
-const execAsync = promisify(exec);
+// New camera module imports
+import {
+  CameraProvider,
+  createProvider,
+  cameraLogger,
+  CaptureResult,
+  ExtendedCameraStatusResponse,
+} from "../camera";
+
 const logger = createLogger("camera-service");
 
 const initializedDirs = new Set<string>();
@@ -27,78 +33,33 @@ async function ensureDir(dirPath: string): Promise<void> {
 }
 
 export class CameraService {
+  private provider: CameraProvider;
   private isInitialized = false;
-  private cameraMode: "dslr" | "webcam" | "mock" = "mock";
-  private webcamDevice: string = "/dev/video0";
   private _isStreaming = false;
-  private previewProcess: any = null;
-  private ffmpegProcess: any = null;
-  private cameraModel: string = "Unknown";
 
   constructor() {
-    if (env.useWebcam) {
-      this.cameraMode = "webcam";
-      logger.info("Camera service running in WEBCAM MODE");
-    } else if (!env.mockCamera) {
-      this.cameraMode = "dslr";
-      logger.info("Camera service running in DSLR MODE (CLI-based)");
-    }
+    // Create provider based on configuration
+    this.provider = createProvider();
 
-    if (env.mockCamera && this.cameraMode !== "webcam") {
-      this.cameraMode = "mock";
-      logger.warn("Camera service running in MOCK MODE");
-    }
-
-    logger.info(`Camera mode: ${this.cameraMode}`);
+    logger.info(`Camera service using ${env.cameraProvider} provider`, {
+      platform: process.platform,
+    });
   }
 
   async initialize(): Promise<void> {
-    if (this.cameraMode === "mock") {
-      this.isInitialized = true;
-      logger.info("Mock camera initialized");
-      return;
-    }
-
-    if (this.cameraMode === "webcam") {
-      this.isInitialized = true;
-      logger.info("Webcam initialized");
-      return;
-    }
-
-    return this.detectCamera();
-  }
-
-  private async detectCamera(): Promise<void> {
     try {
-      const { stdout } = await execAsync("/usr/bin/gphoto2 --auto-detect");
-      if (stdout.includes("Canon") || stdout.includes("Canon EOS")) {
-        // Extract camera model
-        const lines = stdout.split("\n");
-        for (const line of lines) {
-          if (line.includes("usb:")) {
-            const parts = line.trim().split("usb:");
-            if (parts.length > 0) {
-              this.cameraModel = parts[0].trim();
-              break;
-            }
-          }
-        }
-        this.isInitialized = true;
-        logger.info(`Canon camera detected: ${this.cameraModel}`);
-      } else if (stdout.trim() === "" || stdout.includes("No cameras")) {
-        throw new Error("No camera detected via gphoto2");
-      } else {
-        this.isInitialized = true;
-        logger.info("Camera detected via gphoto2");
-      }
+      await this.provider.initialize();
+      this.isInitialized = true;
+      logger.info("Camera service initialized successfully");
     } catch (error: any) {
-      logger.error("Failed to detect camera:", error.message);
-      throw new Error(`Camera detection failed: ${error.message}`);
+      logger.error("Failed to initialize camera service:", error.message);
+      // Don't throw - allow service to start without camera
+      // Camera will be initialized on first capture attempt
     }
   }
 
   isConnected(): boolean {
-    return this.isInitialized;
+    return this.isInitialized && this.provider.isConnected();
   }
 
   get isStreaming(): boolean {
@@ -110,148 +71,102 @@ export class CameraService {
   }
 
   /**
-   * Start preview stream using gphoto2 --capture-movie piped to ffmpeg
+   * Start preview stream using provider's live view
    * Returns a readable stream of MJPEG data
    */
   async startPreviewStream(): Promise<NodeJS.ReadableStream> {
-    if (this.cameraMode !== "dslr") {
-      throw new Error("Preview stream only available in DSLR mode");
+    if (!this.isInitialized) {
+      await this.initialize();
     }
 
-    // Kill any existing preview process
-    await this.stopPreviewStream();
+    if (!this.provider.isConnected()) {
+      throw new Error("Camera not connected");
+    }
 
-    logger.info("Starting CLI preview stream...");
+    // Start live view
+    await this.provider.startLiveView();
 
-    return new Promise((resolve, reject) => {
+    // Create MJPEG stream from individual frames
+    const frameGenerator = async function* (provider: CameraProvider) {
       try {
-        // Spawn gphoto2 to capture movie (use full path)
-        this.previewProcess = spawn(
-          "/usr/bin/gphoto2",
-          ["--capture-movie", "--stdout"],
-          {
-            stdio: ["ignore", "pipe", "pipe"],
-          },
-        );
+        while (true) {
+          const frame = await provider.getLiveViewFrame();
 
-        // Spawn ffmpeg to convert to MJPEG (use full path)
-        this.ffmpegProcess = spawn(
-          "/usr/bin/ffmpeg",
-          [
-            "-i",
-            "-", // Input from stdin
-            "-f",
-            "mjpeg", // Output format: MJPEG
-            "-q:v",
-            "5", // Quality (1-31, lower is better)
-            "-r",
-            "5", // Frame rate: 5fps
-            "pipe:1", // Output to stdout
-          ],
-          {
-            stdio: ["pipe", "pipe", "pipe"],
-          },
-        );
+          // MJPEG boundary and headers
+          const mjpegFrame = Buffer.concat([
+            Buffer.from("--myboundary\r\n"),
+            Buffer.from("Content-Type: image/jpeg\r\n"),
+            Buffer.from(`Content-Length: ${frame.length}\r\n\r\n`),
+            frame,
+            Buffer.from("\r\n"),
+          ]);
 
-        // Pipe gphoto2 stdout to ffmpeg stdin
-        this.previewProcess.stdout.pipe(this.ffmpegProcess.stdin);
+          yield mjpegFrame;
 
-        // Handle errors
-        this.previewProcess.on("error", (err: Error) => {
-          logger.error("gphoto2 preview process error:", err.message);
-          this.cleanupPreviewProcesses();
-          reject(err);
-        });
-
-        this.ffmpegProcess.on("error", (err: Error) => {
-          logger.error("ffmpeg process error:", err.message);
-          this.cleanupPreviewProcesses();
-          reject(err);
-        });
-
-        this.previewProcess.stderr.on("data", (data: Buffer) => {
-          const msg = data.toString().trim();
-          if (msg && !msg.includes("Sending data") && !msg.includes("blocks")) {
-            logger.debug("gphoto2:", msg);
-          }
-        });
-
-        this.ffmpegProcess.stderr.on("data", (data: Buffer) => {
-          const msg = data.toString().trim();
-          // ffmpeg outputs progress to stderr, only log errors
-          if (msg && msg.includes("Error")) {
-            logger.error("ffmpeg:", msg);
-          }
-        });
-
-        // Wait a moment for processes to start
-        setTimeout(() => {
-          if (this.ffmpegProcess && this.ffmpegProcess.stdout) {
-            this._isStreaming = true;
-            logger.info("CLI preview stream started successfully");
-            resolve(this.ffmpegProcess.stdout);
-          } else {
-            reject(new Error("Failed to start preview stream"));
-          }
-        }, 1000);
-      } catch (error: any) {
-        logger.error("Failed to start preview stream:", error.message);
-        this.cleanupPreviewProcesses();
-        reject(error);
+          // Frame rate control (10 FPS)
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      } catch (error) {
+        cameraLogger.error("Live view stream error:", error);
+        throw error;
       }
+    };
+
+    this._isStreaming = true;
+
+    const stream = Readable.from(frameGenerator(this.provider));
+
+    // Handle stream end
+    stream.on("end", () => {
+      this._isStreaming = false;
+      this.provider.stopLiveView().catch((err) => {
+        cameraLogger.error("Error stopping live view:", err);
+      });
     });
+
+    stream.on("error", (err) => {
+      this._isStreaming = false;
+      cameraLogger.error("Stream error:", err);
+      this.provider.stopLiveView().catch(() => {});
+    });
+
+    return stream;
   }
 
   /**
-   * Stop the preview stream processes
+   * Stop the preview stream
    */
   async stopPreviewStream(): Promise<void> {
-    if (!this.previewProcess && !this.ffmpegProcess) {
+    if (!this._isStreaming) {
       return;
     }
 
-    logger.info("Stopping CLI preview stream...");
+    logger.info("Stopping preview stream...");
     this._isStreaming = false;
 
-    this.cleanupPreviewProcesses();
-
-    // Wait a moment for processes to fully terminate
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    logger.info("Preview stream stopped");
-  }
-
-  private cleanupPreviewProcesses(): void {
-    if (this.previewProcess) {
-      try {
-        this.previewProcess.kill("SIGTERM");
-        // Force kill after 2 seconds if still running
-        setTimeout(() => {
-          try {
-            this.previewProcess?.kill("SIGKILL");
-          } catch {}
-        }, 2000);
-      } catch {}
-      this.previewProcess = null;
-    }
-
-    if (this.ffmpegProcess) {
-      try {
-        this.ffmpegProcess.kill("SIGTERM");
-        setTimeout(() => {
-          try {
-            this.ffmpegProcess?.kill("SIGKILL");
-          } catch {}
-        }, 2000);
-      } catch {}
-      this.ffmpegProcess = null;
+    try {
+      await this.provider.stopLiveView();
+      logger.info("Preview stream stopped");
+    } catch (error: any) {
+      logger.error("Error stopping preview stream:", error.message);
+      throw error;
     }
   }
 
   async getPreviewFrame(): Promise<Buffer> {
-    throw new Error(
-      "getPreviewFrame() not supported in CLI mode. Use startPreviewStream() instead.",
-    );
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.provider.isConnected()) {
+      throw new Error("Camera not connected");
+    }
+
+    if (!this._isStreaming) {
+      await this.provider.startLiveView();
+    }
+
+    return this.provider.getLiveViewFrame();
   }
 
   async capturePhoto(
@@ -262,202 +177,58 @@ export class CameraService {
     metadata: CameraMetadata;
   }> {
     if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    if (!this.provider.isConnected()) {
       throw new Error("Camera not initialized");
     }
 
-    if (this.cameraMode === "webcam") {
-      return this.captureWebcamPhoto(sessionId, sequenceNumber);
-    }
-
-    if (this.cameraMode === "mock") {
-      return this.captureMockPhoto(sessionId, sequenceNumber);
-    }
-
-    return this.captureDslrPhoto(sessionId, sequenceNumber);
-  }
-
-  private async captureDslrPhoto(
-    sessionId: string,
-    sequenceNumber: number,
-  ): Promise<{
-    imagePath: string;
-    metadata: CameraMetadata;
-  }> {
-    // Stop preview if running (USB exclusivity)
+    // Stop preview if running (can't capture while streaming on 550D)
     const wasStreaming = this._isStreaming;
     if (wasStreaming) {
-      logger.info("Stopping preview for capture (USB exclusivity)...");
+      logger.info("Stopping preview for capture...");
       await this.stopPreviewStream();
-      // Wait for camera to settle (increased to 2000ms for reliable USB transition)
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-
-    const MAX_RETRIES = 3;
-    const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
-    const imagePath = path.join(env.tempPhotoPath, filename);
-
-    await ensureDir(env.tempPhotoPath);
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        logger.info(`CLI capture attempt ${attempt}/${MAX_RETRIES}...`, {
-          sessionId,
-          sequenceNumber,
-        });
-
-        // Capture and download in one command
-        const command = `/usr/bin/gphoto2 --capture-image-and-download --filename "${imagePath}" --force-overwrite`;
-
-        await execAsync(command, { timeout: 15000 });
-
-        // Verify file was created
-        if (!fs.existsSync(imagePath)) {
-          throw new Error("Capture failed: image file not created");
-        }
-
-        const stats = fs.statSync(imagePath);
-        if (stats.size < 10000) {
-          throw new Error("Capture failed: image file too small");
-        }
-
-        logger.info("CLI capture successful", { imagePath, size: stats.size });
-
-        // Restart preview if it was running
-        if (wasStreaming) {
-          logger.info("Restarting preview stream after capture...");
-          // Wait for camera to settle before restarting preview
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          // Import and restart preview via PreviewStreamManager
-          const { getPreviewStreamManager } =
-            await import("./preview-stream-manager");
-          getPreviewStreamManager().restartPreview();
-        }
-
-        const metadata: CameraMetadata = {
-          model: this.cameraModel,
-          iso: "Auto",
-          shutterSpeed: "Auto",
-          aperture: "Auto",
-          focalLength: "Unknown",
-          timestamp: new Date().toISOString(),
-        };
-
-        return { imagePath, metadata };
-      } catch (err: any) {
-        const isPtpBusy =
-          err?.message?.includes("Device Busy") ||
-          err?.message?.includes("-110");
-
-        if (isPtpBusy && attempt < MAX_RETRIES) {
-          const delay = 1000 * attempt;
-          logger.warn(
-            `Capture attempt ${attempt}/${MAX_RETRIES} failed (PTP Device Busy), retrying in ${delay}ms...`,
-          );
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        } else {
-          // Restart preview if it was running (even on error)
-          if (wasStreaming) {
-            logger.info("Restarting preview stream after capture error...");
-            // Wait for camera to settle before restarting preview
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            // Import and restart preview via PreviewStreamManager
-            const { getPreviewStreamManager } =
-              await import("./preview-stream-manager");
-            getPreviewStreamManager().restartPreview();
-          }
-          throw err;
-        }
-      }
-    }
-
-    throw new Error("Capture failed: exhausted retries");
-  }
-
-  private async captureMockPhoto(
-    sessionId: string,
-    sequenceNumber: number,
-  ): Promise<{
-    imagePath: string;
-    metadata: CameraMetadata;
-  }> {
-    logger.info("Mock: Capturing photo...", { sessionId, sequenceNumber });
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    const mockImageData = Buffer.from([
-      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
-      0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
-      0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
-      0x09, 0x08, 0x0a, 0x0c, 0x14, 0x0d, 0x0c, 0x0b, 0x0b, 0x0c, 0x19, 0x12,
-      0x13, 0x0f, 0x14, 0x1d, 0x1a, 0x1f, 0x1e, 0x1d, 0x1a, 0x1c, 0x1c, 0x20,
-      0x24, 0x2e, 0x27, 0x20, 0x22, 0x2c, 0x23, 0x1c, 0x1c, 0x28, 0x37, 0x29,
-      0x2c, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1f, 0x27, 0x39, 0x3d, 0x38, 0x32,
-      0x3c, 0x2e, 0x33, 0x34, 0x32, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01,
-      0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xff, 0xc4, 0x00, 0x14, 0x00, 0x01,
-      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      0x00, 0x00, 0x00, 0x03, 0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00,
-      0x3f, 0x00, 0x37, 0xff, 0xd9,
-    ]);
-
-    const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
-    const imagePath = path.join(env.tempPhotoPath, filename);
-
-    await ensureDir(env.tempPhotoPath);
-    await fsPromises.writeFile(imagePath, mockImageData);
-
-    logger.info("Mock: Photo captured successfully", { imagePath });
-
-    const metadata: CameraMetadata = {
-      model: "Canon EOS Mock Camera",
-      iso: "200",
-      shutterSpeed: "1/125",
-      aperture: "f/2.8",
-      focalLength: "50mm",
-      timestamp: new Date().toISOString(),
-    };
-
-    return { imagePath, metadata };
-  }
-
-  private async captureWebcamPhoto(
-    sessionId: string,
-    sequenceNumber: number,
-  ): Promise<{
-    imagePath: string;
-    metadata: CameraMetadata;
-  }> {
-    logger.info("Webcam: Capturing photo...", { sessionId, sequenceNumber });
-
-    const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
-    const imagePath = path.join(env.tempPhotoPath, filename);
-
-    await ensureDir(env.tempPhotoPath);
 
     try {
-      const command = `ffmpeg -f v4l2 -video_size 1280x720 -i ${this.webcamDevice} -frames:v 1 -update 1 -y "${imagePath}"`;
+      logger.info(`Capturing photo ${sequenceNumber} for session ${sessionId}`);
 
-      logger.info("Webcam: Running ffmpeg command");
-      await execAsync(command, { timeout: 10000 });
+      const result = await this.provider.capturePhoto(
+        sessionId,
+        sequenceNumber,
+      );
 
-      if (!fs.existsSync(imagePath)) {
-        throw new Error("Image file was not created");
+      logger.info("Photo captured successfully", {
+        imagePath: result.imagePath,
+        size: fs.existsSync(result.imagePath)
+          ? fs.statSync(result.imagePath).size
+          : 0,
+      });
+
+      // Restart preview if it was running
+      if (wasStreaming) {
+        logger.info("Restarting preview stream...");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await this.startPreviewStream();
       }
 
-      logger.info("Webcam: Photo captured successfully", { imagePath });
-
-      const metadata: CameraMetadata = {
-        model: "Development Webcam",
-        iso: "N/A",
-        shutterSpeed: "N/A",
-        aperture: "N/A",
-        focalLength: "N/A",
-        timestamp: new Date().toISOString(),
+      return {
+        imagePath: result.imagePath,
+        metadata: result.metadata,
       };
-
-      return { imagePath, metadata };
     } catch (error: any) {
-      logger.error("Webcam capture failed:", error);
-      throw new Error(`Webcam capture failed: ${error.message || error}`);
+      logger.error("Capture failed:", error);
+
+      // Restart preview on error too
+      if (wasStreaming) {
+        logger.info("Restarting preview stream after error...");
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await this.startPreviewStream().catch(() => {});
+      }
+
+      throw error;
     }
   }
 
@@ -465,58 +236,26 @@ export class CameraService {
     if (!this.isInitialized) {
       return {
         connected: false,
-        model: "No camera detected",
+        model: "Camera not initialized",
         battery: 0,
         storageAvailable: false,
         settings: {},
       };
     }
 
-    if (this.cameraMode === "webcam") {
+    try {
+      const status = await this.provider.getStatus();
+      return status;
+    } catch (error: any) {
+      logger.error("Failed to get camera status:", error.message);
       return {
-        connected: true,
-        model: "Development Webcam",
-        battery: 100,
-        storageAvailable: true,
-        settings: {
-          iso: "N/A",
-          shutterSpeed: "N/A",
-          aperture: "N/A",
-          whiteBalance: "auto",
-          imageFormat: "JPEG",
-        },
+        connected: false,
+        model: "Error getting status",
+        battery: 0,
+        storageAvailable: false,
+        settings: {},
       };
     }
-
-    if (this.cameraMode === "mock") {
-      return {
-        connected: true,
-        model: "Canon EOS Mock Camera",
-        battery: 100,
-        storageAvailable: true,
-        settings: {
-          iso: "200",
-          shutterSpeed: "1/125",
-          aperture: "f/2.8",
-          whiteBalance: "auto",
-          imageFormat: "JPEG",
-        },
-      };
-    }
-
-    return {
-      connected: true,
-      model: this.cameraModel || "Canon DSLR",
-      battery: 100,
-      storageAvailable: true,
-      settings: {
-        iso: "Auto",
-        shutterSpeed: "Auto",
-        aperture: "Auto",
-        whiteBalance: "auto",
-        imageFormat: "JPEG",
-      },
-    };
   }
 
   async configure(settings: Partial<CameraSettings>): Promise<CameraSettings> {
@@ -526,32 +265,96 @@ export class CameraService {
 
     logger.info("Configuring camera:", settings);
 
-    if (this.cameraMode === "mock" || this.cameraMode === "webcam") {
-      return {
-        iso: settings.iso || "200",
-        shutterSpeed: settings.shutterSpeed || "1/125",
-        aperture: settings.aperture || "f/2.8",
-        whiteBalance: settings.whiteBalance || "auto",
-        imageFormat: settings.imageFormat || "JPEG",
-      };
+    // Map settings to EDSDK properties
+    const {
+      kEdsPropID_ISOSpeed,
+      kEdsPropID_WhiteBalance,
+      kEdsPropID_Av,
+      kEdsPropID_Tv,
+    } = await import("../camera/bindings/constants");
+
+    const configured: CameraSettings = {};
+
+    if (settings.iso) {
+      try {
+        // Convert ISO string to EDSDK value
+        const isoValue = parseInt(settings.iso, 10);
+        await this.provider.setProperty(kEdsPropID_ISOSpeed, isoValue);
+        configured.iso = settings.iso;
+      } catch (error) {
+        logger.warn("Failed to set ISO:", error);
+      }
     }
 
-    // CLI mode: Configuration not fully implemented
-    logger.warn("Camera configuration not fully implemented for CLI mode");
+    if (settings.whiteBalance) {
+      try {
+        await this.provider.setProperty(
+          kEdsPropID_WhiteBalance,
+          settings.whiteBalance,
+        );
+        configured.whiteBalance = settings.whiteBalance;
+      } catch (error) {
+        logger.warn("Failed to set white balance:", error);
+      }
+    }
+
+    // Get current settings from camera
+    const currentStatus = await this.getStatus();
 
     return {
-      iso: "Auto",
-      shutterSpeed: "Auto",
-      aperture: "Auto",
-      whiteBalance: "auto",
-      imageFormat: "JPEG",
+      iso: configured.iso || currentStatus.settings.iso || "Auto",
+      shutterSpeed:
+        configured.shutterSpeed ||
+        currentStatus.settings.shutterSpeed ||
+        "Auto",
+      aperture:
+        configured.aperture || currentStatus.settings.aperture || "Auto",
+      whiteBalance:
+        configured.whiteBalance ||
+        currentStatus.settings.whiteBalance ||
+        "auto",
+      imageFormat:
+        configured.imageFormat || currentStatus.settings.imageFormat || "JPEG",
     };
   }
 
   async disconnect(): Promise<void> {
-    await this.stopPreviewStream();
+    logger.info("Disconnecting camera service...");
+
+    if (this._isStreaming) {
+      await this.stopPreviewStream();
+    }
+
+    await this.provider.disconnect();
     this.isInitialized = false;
-    logger.info("Camera disconnected");
+
+    logger.info("Camera service disconnected");
+  }
+
+  /**
+   * Extend camera shutdown timer
+   */
+  async extendShutDownTimer(): Promise<void> {
+    if (!this.isInitialized || !this.provider.isConnected()) {
+      return;
+    }
+
+    try {
+      await this.provider.extendShutDownTimer();
+    } catch (error) {
+      logger.warn("Failed to extend shutdown timer:", error);
+    }
+  }
+
+  /**
+   * Trigger auto-focus
+   */
+  async triggerFocus(): Promise<void> {
+    if (!this.isInitialized || !this.provider.isConnected()) {
+      throw new Error("Camera not initialized");
+    }
+
+    await this.provider.triggerFocus();
   }
 }
 
@@ -562,4 +365,11 @@ export function getCameraService(): CameraService {
     cameraService = new CameraService();
   }
   return cameraService;
+}
+
+export function resetCameraService(): void {
+  if (cameraService) {
+    cameraService.disconnect().catch(() => {});
+    cameraService = null;
+  }
 }
