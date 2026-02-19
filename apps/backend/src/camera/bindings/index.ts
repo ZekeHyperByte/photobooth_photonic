@@ -37,7 +37,7 @@ export function loadEdsdk(): any {
   cameraLogger.info("Loading EDSDK from:", dllPath);
 
   try {
-    edsdk = ffi.Library(dllPath, edsdkFunctions);
+    edsdk = ffi.Library(dllPath, edsdkFunctions as any);
     cameraLogger.info("EDSDK DLL loaded successfully");
     return edsdk;
   } catch (error: any) {
