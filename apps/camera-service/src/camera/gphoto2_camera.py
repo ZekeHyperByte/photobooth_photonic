@@ -256,7 +256,6 @@ class GPhoto2Camera(BaseCamera):
                 abilities = self._camera.get_abilities()
                 info.update({
                     "model": abilities.model,
-                    "driver": abilities.driver,
                     "port": abilities.port,
                     "preview_supported": self._preview_compatible,
                     "viewfinder_control": self._preview_viewfinder,

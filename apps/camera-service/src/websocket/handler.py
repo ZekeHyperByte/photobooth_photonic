@@ -40,8 +40,9 @@ class CameraWebSocketHandler:
             await self.send_camera_info(websocket)
             
             # Handle incoming messages
-            async for message in websocket:
+            while True:
                 try:
+                    message = await websocket.receive_text()
                     data = json.loads(message)
                     await self.handle_message(websocket, data)
                 except json.JSONDecodeError:
@@ -252,7 +253,7 @@ class CameraWebSocketHandler:
                 disconnected = set()
                 for ws in self.connections:
                     try:
-                        await ws.send(json.dumps(message))
+                        await ws.send_text(json.dumps(message))
                     except Exception:
                         disconnected.add(ws)
                 
@@ -297,7 +298,7 @@ class CameraWebSocketHandler:
     async def send_message(self, websocket, message: dict):
         """Send message to WebSocket client."""
         try:
-            await websocket.send(json.dumps(message))
+            await websocket.send_text(json.dumps(message))
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
     
@@ -315,7 +316,7 @@ class CameraWebSocketHandler:
         disconnected = set()
         for ws in self.connections:
             try:
-                await ws.send(json.dumps(message))
+                await ws.send_text(json.dumps(message))
             except Exception:
                 disconnected.add(ws)
         
