@@ -369,7 +369,7 @@ export class EdsProvider implements CameraProvider {
           const pointer = pointerRef.deref();
 
           // Read data into buffer
-          const buffer = ref.reinterpret(pointer, length) as Buffer;
+          const buffer = ref.reinterpret(pointer as Buffer, length);
 
           return Buffer.from(buffer); // Copy to new buffer
         } finally {
