@@ -19,26 +19,11 @@ export interface CaptureResult {
 }
 
 /**
- * Extended camera status with EDSDK-specific metadata
+ * Extended camera status with provider-specific metadata
  */
 export interface ExtendedCameraStatusResponse extends CameraStatusResponse {
-  /** EDSDK-specific metadata */
-  edsMetadata?: {
-    /** SDK protocol version */
-    protocolVersion: string;
-    /** Number of shots available on storage */
-    availableShots: number;
-    /** Lens name */
-    lensName: string;
-    /** Camera body ID */
-    bodyID: string;
-    /** Firmware version */
-    firmwareVersion: string;
-    /** Camera temperature (if available) */
-    temperature?: number;
-    /** Save location setting */
-    saveTo: "camera" | "host" | "both";
-  };
+  /** Provider-specific metadata (varies by camera implementation) */
+  providerMetadata?: Record<string, any>;
 }
 
 /**

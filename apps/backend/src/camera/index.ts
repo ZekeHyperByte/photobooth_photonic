@@ -1,6 +1,6 @@
 /**
  * Camera Module
- * Provides camera control abstraction with EDSDK integration
+ * Provides camera control abstraction with gPhoto2 integration
  */
 
 // Types
@@ -10,22 +10,12 @@ export * from "./errors";
 // Providers
 export { CameraProvider } from "./types";
 export { MockProvider } from "./providers/mock";
-export { EdsProvider } from "./providers/edsdk";
+export { GPhoto2Provider } from "./providers/gphoto2";
 export {
   createProvider,
   getAvailableProviders,
   ProviderType,
 } from "./providers/factory";
-
-// Bindings
-export * from "./bindings/constants";
-export {
-  loadEdsdk,
-  initializeEdsdk,
-  terminateEdsdk,
-  isEdsdkInitialized,
-  getEdsdk,
-} from "./bindings";
 
 // Logger
 export { cameraLogger } from "./logger";
