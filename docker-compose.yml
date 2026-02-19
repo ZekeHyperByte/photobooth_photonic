@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  # React Frontend
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Node.js Backend
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - BACKEND_PORT=4000
+      - CAMERA_SERVICE_URL=ws://camera-service:8080
+      - DATABASE_URL=./data/photobooth.db
+      - CAMERA_PROVIDER=gphoto2
+      - MOCK_CAMERA=false
+    volumes:
+      - ./data:/app/data
+      - ./photos:/app/photos
+      - ./temp:/app/temp
+    depends_on:
+      - camera-service
+    restart: unless-stopped
+
+  # Camera Service (Python + gphoto2)
+  camera-service:
+    build:
+      context: ./apps/camera-service
+      dockerfile: Dockerfile
+    privileged: true # Required for USB camera access
+    ports:
+      - "8080:8080"
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    volumes:
+      - ./photos:/app/photos
+      - ./temp:/app/temp
+      - ./apps/camera-service/config:/app/config
+    environment:
+      - CONFIG_PATH=/app/config/camera.yaml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  data:
+  photos:
+  temp:

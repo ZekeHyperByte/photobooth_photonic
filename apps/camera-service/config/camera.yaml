@@ -1,0 +1,38 @@
+# Camera Service Configuration
+camera:
+  # Camera settings
+  preview_resolution: [1280, 720] # Preview stream resolution
+  capture_resolution: [5184, 3456] # Full resolution for Canon 550D
+
+  # ISO settings
+  preview_iso: 400
+  capture_iso: 100
+
+  # Rotation (0, 90, 180, 270)
+  preview_rotation: 0
+  capture_rotation: 0
+
+  # Flip horizontally (mirror)
+  preview_flip: true
+  capture_flip: false
+
+  # Storage
+  delete_internal_memory: false # Keep photos on camera SD card
+  capture_target: "Memory card"
+
+  # Timing
+  capture_delay: 0.3 # Seconds to wait after capture for camera to save
+
+  # Auto-restart
+  auto_restart: true
+  max_restart_attempts: 3
+  restart_delay: 5 # Seconds between restart attempts
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  log_level: "info"
+
+paths:
+  photos: "/app/photos"
+  temp: "/app/temp"

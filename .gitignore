@@ -70,4 +70,5 @@ apps/frontend/release/
 # ISO Build
 photonic-iso-build/
 photonic-iso-build-v2/
+temp-pibooth/
 *.iso
