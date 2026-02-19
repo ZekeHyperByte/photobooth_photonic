@@ -49,9 +49,18 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       }
     });
 
-    // Initialize database
-    logger.info("Initializing database...");
-    initDatabase(env.databasePath);
+    // Initialize database (optional - app can work without it)
+    try {
+      logger.info("Initializing database...");
+      initDatabase(env.databasePath);
+      logger.info("Database initialized successfully");
+    } catch (dbError) {
+      logger.warn(
+        "Database initialization failed, continuing without database:",
+        dbError,
+      );
+      logger.warn("Camera and other features will still work!");
+    }
 
     // Create Fastify app
     logger.info("Creating Fastify application...");
@@ -70,7 +79,7 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
 
     logger.info(`Server listening on http://${host}:${port}`);
     logger.info(`Environment: ${env.nodeEnv}`);
-    logger.info(`Database: ${env.databasePath}`);
+    logger.info(`Database: ${env.databasePath} (optional)`);
 
     // Initialize camera service
     const cameraService = getCameraService();
@@ -126,9 +135,13 @@ export async function stopServer(): Promise<void> {
     await app.close();
     logger.info("Fastify app closed");
 
-    // Close database
-    closeDatabase();
-    logger.info("Database connection closed");
+    // Close database (optional - might not be initialized)
+    try {
+      closeDatabase();
+      logger.info("Database connection closed");
+    } catch (dbError) {
+      logger.warn("Database was not initialized, skipping close");
+    }
 
     serverStarted = false;
     app = null;
