@@ -48,8 +48,16 @@ class CameraWebSocketHandler:
                 except json.JSONDecodeError:
                     await self.send_error(websocket, "Invalid JSON message")
                 except Exception as e:
+                    # Check if it's a disconnect (client closed connection)
+                    if "disconnect" in str(e).lower() or "close" in str(e).lower():
+                        logger.info(f"Client {client_id} disconnected")
+                        break
                     logger.error(f"Error handling message: {e}")
-                    await self.send_error(websocket, str(e))
+                    try:
+                        await self.send_error(websocket, str(e))
+                    except:
+                        # If we can't send error, client is gone
+                        break
                     
         except Exception as e:
             logger.error(f"WebSocket error: {e}")

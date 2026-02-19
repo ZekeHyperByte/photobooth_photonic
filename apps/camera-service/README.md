@@ -271,6 +271,33 @@ Based on camera implementation patterns from:
 - **pibooth** - https://github.com/pibooth/pibooth
 - **python-gphoto2** - https://github.com/jim-easterbrook/python-gphoto2
 
+## Setup Guide
+
+### Option 1: Setup Script (Development)
+
+Run the setup script once per machine:
+
+```bash
+sudo bash setup-camera.sh
+```
+
+**After setup:**
+
+1. Log out and log back in
+2. Connect camera via USB
+3. Start service: `source venv/bin/activate && python main.py`
+
+### Option 2: Docker (Production)
+
+```bash
+# From project root
+docker-compose up -d
+```
+
+See full setup details in the sections above.
+
+---
+
 ## License
 
 Proprietary - Photonic Photo Booth System

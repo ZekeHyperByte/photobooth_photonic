@@ -210,7 +210,8 @@ class GPhoto2Camera(BaseCamera):
             elif isinstance(current_value, float):
                 value = float(value)
             
-            widget.set_value(str(value))
+            # Don't convert to string - widgets need proper types
+            widget.set_value(value)
             self._camera.set_config(config, self._context)
             
             logger.debug(f"Set {section}/{option} = {value}")
