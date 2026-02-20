@@ -138,10 +138,9 @@ class CameraManager:
             return await loop.run_in_executor(None, self.camera.get_preview_frame)
         except Exception as e:
             logger.error(f"Failed to get preview frame: {e}")
-            # Try to restart camera on error
-            if await self.restart_camera():
-                return await self.get_preview_frame()
-            raise
+            # Don't auto-restart - just return black frame
+            from PIL import Image
+            return Image.new('RGB', (640, 480), color=(0, 0, 0))
     
     async def capture_photo(self, settings: Optional[dict] = None) -> Image.Image:
         """Capture a photo."""
@@ -150,12 +149,15 @@ class CameraManager:
         
         try:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self.camera.capture_photo)
+            image = await loop.run_in_executor(None, self.camera.capture_photo)
+            # Add delay to let camera save (like pibooth)
+            await asyncio.sleep(0.3)
+            return image
         except Exception as e:
             logger.error(f"Failed to capture photo: {e}")
-            # Try to restart camera on error
-            if await self.restart_camera():
-                return await self.capture_photo(settings)
+            # Don't auto-restart - let caller decide what to do
+            # Just mark camera as needing reconnection
+            self._is_initialized = False
             raise
     
     async def save_photo(self, image: Image.Image, filename: str) -> str:

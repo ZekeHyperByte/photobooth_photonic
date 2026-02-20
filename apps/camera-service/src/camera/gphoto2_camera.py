@@ -255,11 +255,11 @@ class GPhoto2Camera(BaseCamera):
             logger.debug(f"Set {section}/{option} = {value} (type: {type(value).__name__}, widget_type={widget_type})")
             
         except gp.GPhoto2Error as e:
+            # Don't raise - just log warning like pibooth
             logger.warning(f"Could not set {section}/{option}: {e} (value={original_value}, type={type(original_value).__name__})")
-            raise ValueError(f"Unsupported option {section}/{option}")
         except Exception as e:
+            # Don't raise - just log error
             logger.error(f"Unexpected error setting {section}/{option}: {e} (value={original_value}, type={type(original_value).__name__})")
-            raise
     
     def get_config_value(self, section: str, option: str):
         """Get camera configuration value."""
