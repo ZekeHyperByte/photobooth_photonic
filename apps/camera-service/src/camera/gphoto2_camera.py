@@ -82,12 +82,18 @@ class GPhoto2Camera(BaseCamera):
     def _configure_camera(self):
         """Configure camera settings."""
         try:
-            # Set capture target to memory card
-            self.set_config_value('settings', 'capturetarget', 'Memory card')
+            # Set capture target to memory card (non-critical)
+            try:
+                self.set_config_value('settings', 'capturetarget', 'Memory card')
+            except Exception as e:
+                logger.warning(f"Could not set capture target: {e}")
             
-            # Set preview ISO
+            # Set preview ISO (non-critical)
             if self.preview_iso:
-                self.set_config_value('imgsettings', 'iso', self.preview_iso)
+                try:
+                    self.set_config_value('imgsettings', 'iso', self.preview_iso)
+                except Exception as e:
+                    logger.warning(f"Could not set preview ISO: {e}")
             
             logger.info("Camera configured successfully")
         except Exception as e:
@@ -100,9 +106,12 @@ class GPhoto2Camera(BaseCamera):
             return Image.new('RGB', self.preview_resolution or (640, 480), color=(0, 0, 0))
         
         try:
-            # Enable viewfinder if available
+            # Enable viewfinder if available (non-critical)
             if self._preview_viewfinder:
-                self.set_config_value('actions', 'viewfinder', 1)
+                try:
+                    self.set_config_value('actions', 'viewfinder', 1)
+                except Exception as e:
+                    logger.warning(f"Could not enable viewfinder: {e}")
             
             # Capture preview
             cam_file = self._camera.capture_preview()
@@ -131,13 +140,19 @@ class GPhoto2Camera(BaseCamera):
     def capture_photo(self, effect: Optional[str] = None) -> Image.Image:
         """Capture a photo."""
         try:
-            # Disable viewfinder if enabled
+            # Disable viewfinder if enabled (non-critical)
             if self._preview_viewfinder:
-                self.set_config_value('actions', 'viewfinder', 0)
+                try:
+                    self.set_config_value('actions', 'viewfinder', 0)
+                except Exception as e:
+                    logger.warning(f"Could not disable viewfinder: {e}")
             
-            # Set capture ISO if different from preview
+            # Set capture ISO if different from preview (non-critical)
             if self.capture_iso != self.preview_iso:
-                self.set_config_value('imgsettings', 'iso', self.capture_iso)
+                try:
+                    self.set_config_value('imgsettings', 'iso', self.capture_iso)
+                except Exception as e:
+                    logger.warning(f"Could not set capture ISO: {e}")
             
             # Capture image
             logger.info("Capturing photo...")
@@ -174,9 +189,12 @@ class GPhoto2Camera(BaseCamera):
             if self.resolution:
                 image = image.resize(self.resolution, Image.Resampling.LANCZOS)
             
-            # Restore preview ISO
+            # Restore preview ISO (non-critical)
             if self.capture_iso != self.preview_iso:
-                self.set_config_value('imgsettings', 'iso', self.preview_iso)
+                try:
+                    self.set_config_value('imgsettings', 'iso', self.preview_iso)
+                except Exception as e:
+                    logger.warning(f"Could not restore preview ISO: {e}")
             
             logger.info("Photo captured successfully")
             return image
@@ -187,6 +205,7 @@ class GPhoto2Camera(BaseCamera):
     
     def set_config_value(self, section: str, option: str, value):
         """Set camera configuration value."""
+        original_value = value
         try:
             config = self._camera.get_config(self._context)
             widget = config.get_child_by_name(section).get_child_by_name(option)
@@ -194,31 +213,53 @@ class GPhoto2Camera(BaseCamera):
             # Handle different widget types
             widget_type = widget.get_type()
             
-            if widget_type == gp.GP_WIDGET_RADIO:
-                choices = [c for c in widget.get_choices()]
-                if value not in choices:
-                    # Handle common aliases
-                    if value == 'Memory card' and 'card' in choices:
-                        value = 'card'
-                    elif value == 'Memory card' and 'card+sdram' in choices:
-                        value = 'card+sdram'
-            
-            # Cast value to correct type
-            current_value = widget.get_value()
-            if isinstance(current_value, int):
+            if widget_type == gp.GP_WIDGET_TOGGLE:
+                # Toggle widgets need int 0 or 1
                 value = int(value)
-            elif isinstance(current_value, float):
+            elif widget_type == gp.GP_WIDGET_RADIO:
+                # Radio widgets need string from choices list
+                choices = [c for c in widget.get_choices()]
+                str_value = str(value)
+                if str_value not in choices:
+                    # Handle common aliases
+                    if str_value == 'Memory card' and 'card' in choices:
+                        value = 'card'
+                    elif str_value == 'Memory card' and 'card+sdram' in choices:
+                        value = 'card+sdram'
+                    else:
+                        value = str_value
+                else:
+                    value = str_value
+            elif widget_type == gp.GP_WIDGET_RANGE:
+                # Range widgets need float
                 value = float(value)
+            elif widget_type == gp.GP_WIDGET_TEXT:
+                # Text widgets need string
+                value = str(value)
+            elif widget_type == gp.GP_WIDGET_DATE:
+                # Date widgets need int (timestamp)
+                value = int(value)
+            else:
+                # For other types, try to match current value type
+                current_value = widget.get_value()
+                if isinstance(current_value, int):
+                    value = int(value)
+                elif isinstance(current_value, float):
+                    value = float(value)
+                elif isinstance(current_value, str):
+                    value = str(value)
             
-            # Don't convert to string - widgets need proper types
             widget.set_value(value)
             self._camera.set_config(config, self._context)
             
-            logger.debug(f"Set {section}/{option} = {value}")
+            logger.debug(f"Set {section}/{option} = {value} (type: {type(value).__name__}, widget_type={widget_type})")
             
         except gp.GPhoto2Error as e:
-            logger.warning(f"Could not set {section}/{option}: {e}")
+            logger.warning(f"Could not set {section}/{option}: {e} (value={original_value}, type={type(original_value).__name__})")
             raise ValueError(f"Unsupported option {section}/{option}")
+        except Exception as e:
+            logger.error(f"Unexpected error setting {section}/{option}: {e} (value={original_value}, type={type(original_value).__name__})")
+            raise
     
     def get_config_value(self, section: str, option: str):
         """Get camera configuration value."""
