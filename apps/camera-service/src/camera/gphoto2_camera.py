@@ -6,13 +6,48 @@ Uses python-gphoto2 library for Canon DSLR control
 import io
 import time
 import logging
+import subprocess
+import psutil
+from fnmatch import fnmatchcase
 from typing import Optional, Tuple
+from enum import Enum
 from PIL import Image
 import gphoto2 as gp
 
 from .base import BaseCamera
 
 logger = logging.getLogger(__name__)
+
+
+class CameraState(Enum):
+    """Camera state machine states."""
+    IDLE = "idle"
+    PREVIEWING = "previewing"
+    CAPTURING = "capturing"
+    ERROR = "error"
+
+
+def pkill_gphoto2():
+    """Kill all gphoto2 processes to prevent USB conflicts.
+    
+    Adapted from pibooth - ensures clean camera access.
+    """
+    try:
+        killed = []
+        for proc in psutil.process_iter(['pid', 'name']):
+            if fnmatchcase(proc.info['name'].lower(), '*gphoto2*'):
+                try:
+                    proc.kill()
+                    killed.append(proc.info['name'])
+                    logger.debug(f"Killed process: {proc.info['name']} (PID: {proc.info['pid']})")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        if killed:
+            logger.info(f"Killed {len(killed)} gphoto2 process(es): {', '.join(killed)}")
+            # Give processes time to fully terminate
+            time.sleep(0.5)
+    except Exception as e:
+        logger.warning(f"Error killing gphoto2 processes: {e}")
 
 
 class GPhoto2Camera(BaseCamera):
@@ -23,10 +58,15 @@ class GPhoto2Camera(BaseCamera):
         self._camera = None
         self._preview_compatible = False
         self._preview_viewfinder = False
+        self._state = CameraState.IDLE
         
     def _specific_initialization(self):
         """Initialize gPhoto2 camera connection."""
         try:
+            # Kill any existing gphoto2 processes (like pibooth does)
+            logger.info("Killing any existing gphoto2 processes...")
+            pkill_gphoto2()
+            
             # Initialize gPhoto2 context
             self._context = gp.gp_context_new()
             
@@ -34,6 +74,7 @@ class GPhoto2Camera(BaseCamera):
             cameras = gp.check_result(gp.gp_camera_autodetect(self._context))
             
             if not cameras:
+                self._state = CameraState.ERROR
                 raise RuntimeError("No gPhoto2 compatible camera detected")
             
             logger.info(f"Found cameras: {cameras}")
@@ -75,7 +116,12 @@ class GPhoto2Camera(BaseCamera):
             # Configure camera
             self._configure_camera()
             
+            # Set initial state
+            self._state = CameraState.IDLE
+            logger.info(f"Camera state: {self._state.value}")
+            
         except gp.GPhoto2Error as e:
+            self._state = CameraState.ERROR
             logger.error(f"gPhoto2 error during initialization: {e}")
             raise RuntimeError(f"Failed to initialize camera: {e}")
     
@@ -101,11 +147,21 @@ class GPhoto2Camera(BaseCamera):
     
     def get_preview_frame(self) -> Image.Image:
         """Capture a preview frame."""
+        # State validation: Can't preview while capturing
+        if self._state == CameraState.CAPTURING:
+            logger.warning("Cannot capture preview while photo capture is in progress")
+            # Return last frame or black frame
+            return Image.new('RGB', self.preview_resolution or (640, 480), color=(0, 0, 0))
+        
         if not self._preview_compatible:
             # Return black frame if preview not supported
             return Image.new('RGB', self.preview_resolution or (640, 480), color=(0, 0, 0))
         
         try:
+            # Transition to PREVIEWING state
+            previous_state = self._state
+            self._state = CameraState.PREVIEWING
+            
             # Enable viewfinder if available (non-critical)
             if self._preview_viewfinder:
                 try:
@@ -131,19 +187,34 @@ class GPhoto2Camera(BaseCamera):
             if self.preview_resolution:
                 image = image.resize(self.preview_resolution, Image.Resampling.LANCZOS)
             
+            # Stay in PREVIEWING state (will be reset by stop_preview or capture)
             return image
             
         except gp.GPhoto2Error as e:
+            self._state = CameraState.ERROR
             logger.error(f"Failed to capture preview: {e}")
             raise RuntimeError(f"Preview capture failed: {e}")
     
     def capture_photo(self, effect: Optional[str] = None) -> Image.Image:
         """Capture a photo."""
+        # State validation: Can't capture while already capturing
+        if self._state == CameraState.CAPTURING:
+            raise RuntimeError("Photo capture already in progress")
+        
+        previous_state = self._state
+        
         try:
-            # Disable viewfinder if enabled (non-critical)
-            if self._preview_viewfinder:
+            # Transition to CAPTURING state
+            self._state = CameraState.CAPTURING
+            logger.info(f"Camera state: {self._state.value}")
+            
+            # If we were previewing, disable viewfinder first
+            if previous_state == CameraState.PREVIEWING and self._preview_viewfinder:
+                logger.info("Stopping preview before capture...")
                 try:
                     self.set_config_value('actions', 'viewfinder', 0)
+                    # Give camera time to stop preview
+                    time.sleep(0.2)
                 except Exception as e:
                     logger.warning(f"Could not disable viewfinder: {e}")
             
@@ -158,7 +229,9 @@ class GPhoto2Camera(BaseCamera):
             logger.info("Capturing photo...")
             file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
             
-            # Wait for camera to save
+            # CRITICAL: Wait for camera to save (like pibooth does)
+            # This prevents "I/O in progress" errors
+            logger.debug("Waiting for camera to save image...")
             time.sleep(0.3)
             
             # Download image
@@ -196,12 +269,45 @@ class GPhoto2Camera(BaseCamera):
                 except Exception as e:
                     logger.warning(f"Could not restore preview ISO: {e}")
             
+            # Return to IDLE state
+            self._state = CameraState.IDLE
+            logger.info(f"Camera state: {self._state.value}")
             logger.info("Photo captured successfully")
             return image
             
         except gp.GPhoto2Error as e:
+            self._state = CameraState.ERROR
             logger.error(f"Failed to capture photo: {e}")
             raise RuntimeError(f"Photo capture failed: {e}")
+        except Exception as e:
+            self._state = CameraState.ERROR
+            raise
+    
+    def stop_preview(self):
+        """Stop preview and return to IDLE state."""
+        if self._state != CameraState.PREVIEWING:
+            return
+        
+        logger.info("Stopping preview...")
+        
+        # Disable viewfinder if enabled
+        if self._preview_viewfinder:
+            try:
+                self.set_config_value('actions', 'viewfinder', 0)
+            except Exception as e:
+                logger.warning(f"Could not disable viewfinder: {e}")
+        
+        # Return to IDLE state
+        self._state = CameraState.IDLE
+        logger.info(f"Camera state: {self._state.value}")
+    
+    def get_state(self) -> CameraState:
+        """Get current camera state."""
+        return self._state
+    
+    def is_ready(self) -> bool:
+        """Check if camera is ready for operations."""
+        return self._state in (CameraState.IDLE, CameraState.PREVIEWING) and self._camera is not None
     
     def set_config_value(self, section: str, option: str, value):
         """Set camera configuration value."""
@@ -288,10 +394,16 @@ class GPhoto2Camera(BaseCamera):
             finally:
                 self._camera = None
                 self._is_initialized = False
+                self._state = CameraState.IDLE
     
     def get_camera_info(self) -> dict:
         """Get detailed camera information."""
         info = super().get_camera_info()
+        info.update({
+            "state": self._state.value if self._state else "unknown",
+            "preview_supported": self._preview_compatible,
+            "viewfinder_control": self._preview_viewfinder,
+        })
         
         if self._camera:
             try:
@@ -299,8 +411,6 @@ class GPhoto2Camera(BaseCamera):
                 info.update({
                     "model": abilities.model,
                     "port": abilities.port,
-                    "preview_supported": self._preview_compatible,
-                    "viewfinder_control": self._preview_viewfinder,
                 })
             except Exception as e:
                 logger.warning(f"Could not get camera abilities: {e}")

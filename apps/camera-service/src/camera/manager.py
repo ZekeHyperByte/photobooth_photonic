@@ -126,7 +126,12 @@ class CameraManager:
     
     def is_camera_ready(self) -> bool:
         """Check if camera is initialized and ready."""
-        return self._is_initialized and self.camera is not None and self.camera.is_connected()
+        if not self._is_initialized or self.camera is None:
+            return False
+        # Use is_ready() if available (checks state machine), fallback to is_connected()
+        if hasattr(self.camera, 'is_ready'):
+            return self.camera.is_ready()
+        return self.camera.is_connected()
     
     async def get_preview_frame(self) -> Image.Image:
         """Get a preview frame from camera."""
@@ -142,16 +147,30 @@ class CameraManager:
             from PIL import Image
             return Image.new('RGB', (640, 480), color=(0, 0, 0))
     
+    async def stop_preview(self):
+        """Stop camera preview."""
+        if not self.is_camera_ready():
+            return
+        
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.camera.stop_preview)
+            logger.info("Preview stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping preview: {e}")
+    
     async def capture_photo(self, settings: Optional[dict] = None) -> Image.Image:
         """Capture a photo."""
         if not self.is_camera_ready():
             raise RuntimeError("Camera not ready")
         
         try:
+            # Stop preview if active (camera state machine will handle this, but let's be safe)
+            await self.stop_preview()
+            
             loop = asyncio.get_event_loop()
             image = await loop.run_in_executor(None, self.camera.capture_photo)
-            # Add delay to let camera save (like pibooth)
-            await asyncio.sleep(0.3)
+            # Note: sleep is now inside capture_photo in camera class (pibooth pattern)
             return image
         except Exception as e:
             logger.error(f"Failed to capture photo: {e}")

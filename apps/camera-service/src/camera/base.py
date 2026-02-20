@@ -81,8 +81,17 @@ class BaseCamera(ABC):
         pass
     
     @abstractmethod
+    def is_ready(self) -> bool:
+        """Check if camera is ready for operations."""
+        pass
+    
+    @abstractmethod
     def disconnect(self):
         """Disconnect from camera."""
+        pass
+    
+    def stop_preview(self):
+        """Stop camera preview. Override in subclass if supported."""
         pass
     
     def _rotate_image(self, image: Image.Image, rotation: int) -> Image.Image:
