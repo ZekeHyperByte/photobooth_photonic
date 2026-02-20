@@ -185,7 +185,8 @@ class CameraManager:
         
         try:
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, image.save, filepath, 'JPEG', 95)
+            # Use lambda to pass quality as keyword argument (PIL requirement)
+            await loop.run_in_executor(None, lambda: image.save(filepath, 'JPEG', quality=95))
             logger.info(f"Photo saved: {filepath}")
             return filepath
         except Exception as e:
