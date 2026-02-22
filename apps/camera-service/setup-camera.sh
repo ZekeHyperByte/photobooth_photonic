@@ -34,14 +34,23 @@ apt-get install -y \
     udev
 
 echo ""
-echo -e "${YELLOW}Step 2: Creating udev rule for Canon cameras...${NC}"
+echo -e "${YELLOW}Step 2: Creating udev rules for Canon cameras...${NC}"
 
 # Create udev rule file
 cat > /etc/udev/rules.d/99-canon-camera.rules << 'EOF'
 # Canon camera permissions for Photonic
-# Allows all users to access Canon cameras via USB
+# Rule 1: Allow all plugdev users to access Canon cameras via USB
 SUBSYSTEM=="usb", ATTR{idVendor}=="04a9", ATTR{idProduct}=="*", MODE="0666", GROUP="plugdev"
+
+# Rule 2: Grant plugdev group write access to USB 'authorized' sysfs file
+# This allows the camera service to perform software USB resets (PTP timeout recovery)
+# without needing sudo. When a Canon camera is connected, the authorized file's group
+# is changed to plugdev with group-write permission, enabling the service to toggle
+# the USB device on/off for recovery.
+SUBSYSTEM=="usb", ATTR{idVendor}=="04a9", RUN+="/bin/sh -c 'chgrp plugdev /sys%p/authorized && chmod g+w /sys%p/authorized'"
 EOF
+
+echo -e "${GREEN}✓ Created udev rules (USB access + sysfs reset permission)${NC}"
 
 # Reload udev rules
 udevadm control --reload-rules

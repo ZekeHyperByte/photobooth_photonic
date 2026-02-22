@@ -59,6 +59,24 @@ class GPhoto2Camera(BaseCamera):
         self._preview_compatible = False
         self._preview_viewfinder = False
         self._state = CameraState.IDLE
+        self.needs_usb_reset = False
+    
+    @staticmethod
+    def _is_ptp_timeout(error) -> bool:
+        """Check if a gPhoto2 error is a PTP timeout.
+        
+        PTP timeouts indicate the camera's PTP state machine is stuck
+        and typically require a USB reset to recover.
+        """
+        error_str = str(error).lower()
+        # gPhoto2 error code -10 = GP_ERROR_TIMEOUT
+        if hasattr(error, 'code') and error.code == -10:
+            return True
+        if 'timeout' in error_str:
+            return True
+        if 'ptp timeout' in error_str:
+            return True
+        return False
         
     def _specific_initialization(self):
         """Initialize gPhoto2 camera connection."""
@@ -122,7 +140,11 @@ class GPhoto2Camera(BaseCamera):
             
         except gp.GPhoto2Error as e:
             self._state = CameraState.ERROR
-            logger.error(f"gPhoto2 error during initialization: {e}")
+            if self._is_ptp_timeout(e):
+                self.needs_usb_reset = True
+                logger.error(f"PTP Timeout during initialization — USB reset needed: {e}")
+            else:
+                logger.error(f"gPhoto2 error during initialization: {e}")
             raise RuntimeError(f"Failed to initialize camera: {e}")
     
     def _configure_camera(self):
@@ -192,7 +214,11 @@ class GPhoto2Camera(BaseCamera):
             
         except gp.GPhoto2Error as e:
             self._state = CameraState.ERROR
-            logger.error(f"Failed to capture preview: {e}")
+            if self._is_ptp_timeout(e):
+                self.needs_usb_reset = True
+                logger.error(f"PTP Timeout during preview — USB reset needed: {e}")
+            else:
+                logger.error(f"Failed to capture preview: {e}")
             raise RuntimeError(f"Preview capture failed: {e}")
     
     def capture_photo(self, effect: Optional[str] = None) -> Image.Image:
@@ -224,6 +250,15 @@ class GPhoto2Camera(BaseCamera):
                     self.set_config_value('imgsettings', 'iso', self.capture_iso)
                 except Exception as e:
                     logger.warning(f"Could not set capture ISO: {e}")
+            
+            # IMPORTANT: Canon EOS cameras require capture target to be explicitly
+            # set before each capture to activate Canon PTP capture extensions.
+            # Without this, capture fails with [-1] Unspecified error.
+            try:
+                self.set_config_value('settings', 'capturetarget', 'Memory card')
+                logger.debug("Capture target set to Memory card")
+            except Exception as e:
+                logger.warning(f"Could not set capture target: {e}")
             
             # Capture image
             logger.info("Capturing photo...")
@@ -277,7 +312,11 @@ class GPhoto2Camera(BaseCamera):
             
         except gp.GPhoto2Error as e:
             self._state = CameraState.ERROR
-            logger.error(f"Failed to capture photo: {e}")
+            if self._is_ptp_timeout(e):
+                self.needs_usb_reset = True
+                logger.error(f"PTP Timeout during capture — USB reset needed: {e}")
+            else:
+                logger.error(f"Failed to capture photo: {e}")
             raise RuntimeError(f"Photo capture failed: {e}")
         except Exception as e:
             self._state = CameraState.ERROR

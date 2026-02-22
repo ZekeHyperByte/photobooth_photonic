@@ -1,6 +1,7 @@
 """
 Camera Manager
-Manages camera instance, handles auto-restart, and provides async interface
+Manages camera instance, handles auto-restart, and provides async interface.
+Includes USB reset recovery for PTP timeout errors.
 """
 
 import os
@@ -12,6 +13,7 @@ from PIL import Image
 
 from .gphoto2_camera import GPhoto2Camera
 from .base import BaseCamera
+from ..utils.usb_reset import UsbResetHelper
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,16 @@ class CameraManager:
         self._restart_delay = config.get('restart_delay', 5)
         self._photos_dir = config.get('photos_dir', '/app/photos')
         self._is_initialized = False
+        
+        # USB reset recovery configuration
+        recovery_config = config.get('recovery', {})
+        self._auto_usb_reset = recovery_config.get('auto_usb_reset', True)
+        self._max_usb_reset_attempts = recovery_config.get('max_usb_reset_attempts', 2)
+        self._usb_reset_helper = UsbResetHelper(
+            vendor_id=recovery_config.get('usb_vendor_id', '04a9'),
+            settle_time=recovery_config.get('usb_reset_settle_time', 3.0)
+        )
+        self._usb_reset_count = 0
         
         # Ensure photos directory exists
         os.makedirs(self._photos_dir, exist_ok=True)
@@ -47,8 +59,41 @@ class CameraManager:
                 logger.error(f"Failed to initialize camera: {e}")
                 raise
     
+    async def _try_usb_reset(self) -> bool:
+        """Attempt a USB sysfs reset to recover from PTP timeout.
+        
+        Returns:
+            True if reset succeeded, False otherwise
+        """
+        if not self._auto_usb_reset:
+            logger.info("USB auto-reset is disabled in config")
+            return False
+        
+        if self._usb_reset_count >= self._max_usb_reset_attempts:
+            logger.error(
+                f"Max USB reset attempts ({self._max_usb_reset_attempts}) reached. "
+                f"Camera may need physical power cycle."
+            )
+            return False
+        
+        self._usb_reset_count += 1
+        logger.warning(
+            f"Attempting USB reset (attempt {self._usb_reset_count}/{self._max_usb_reset_attempts})..."
+        )
+        
+        # Run USB reset in thread pool (it uses time.sleep internally)
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, self._usb_reset_helper.reset_usb_device)
+        
+        if success:
+            logger.info("USB reset succeeded — camera should be available for reconnection")
+        else:
+            logger.error("USB reset failed")
+        
+        return success
+    
     async def _try_connect_camera(self):
-        """Attempt to connect to camera with retry logic."""
+        """Attempt to connect to camera with retry logic and USB reset recovery."""
         while self._restart_attempts < self._max_restart_attempts:
             try:
                 logger.info(f"Attempting to connect camera (attempt {self._restart_attempts + 1}/{self._max_restart_attempts})")
@@ -84,11 +129,25 @@ class CameraManager:
                 )
                 
                 logger.info("Camera connected and initialized")
+                # Reset USB reset counter on successful connection
+                self._usb_reset_count = 0
                 return
                 
             except Exception as e:
                 self._restart_attempts += 1
                 logger.error(f"Camera connection attempt {self._restart_attempts} failed: {e}")
+                
+                # Check if the camera needs a USB reset (PTP timeout)
+                if (self.camera and hasattr(self.camera, 'needs_usb_reset') 
+                        and self.camera.needs_usb_reset):
+                    logger.warning("PTP timeout detected — attempting USB reset before retry")
+                    self.camera.needs_usb_reset = False
+                    usb_reset_ok = await self._try_usb_reset()
+                    if usb_reset_ok:
+                        # Don't count this as a failed attempt, USB reset may fix it
+                        self._restart_attempts = max(0, self._restart_attempts - 1)
+                        await asyncio.sleep(2)  # Brief settle after reset
+                        continue
                 
                 if self._restart_attempts < self._max_restart_attempts:
                     logger.info(f"Waiting {self._restart_delay} seconds before retry...")
@@ -97,8 +156,12 @@ class CameraManager:
                     logger.error("Max restart attempts reached. Camera initialization failed.")
                     raise RuntimeError(f"Failed to initialize camera after {self._max_restart_attempts} attempts: {e}")
     
-    async def restart_camera(self):
-        """Restart camera connection."""
+    async def restart_camera(self, force_usb_reset: bool = False):
+        """Restart camera connection.
+        
+        Args:
+            force_usb_reset: If True, perform USB reset before reconnecting
+        """
         async with self._lock:
             logger.info("Restarting camera...")
             
@@ -110,6 +173,11 @@ class CameraManager:
                     logger.warning(f"Error during camera disconnect: {e}")
                 finally:
                     self.camera = None
+            
+            # Perform USB reset if requested
+            if force_usb_reset:
+                logger.warning("Forced USB reset requested before reconnection")
+                await self._try_usb_reset()
             
             # Reset attempts and try to reconnect
             self._restart_attempts = 0
@@ -143,7 +211,14 @@ class CameraManager:
             return await loop.run_in_executor(None, self.camera.get_preview_frame)
         except Exception as e:
             logger.error(f"Failed to get preview frame: {e}")
-            # Don't auto-restart - just return black frame
+            
+            # Check if PTP timeout triggered — attempt auto-recovery
+            if (self.camera and hasattr(self.camera, 'needs_usb_reset') 
+                    and self.camera.needs_usb_reset):
+                logger.warning("PTP timeout during preview — triggering auto-recovery")
+                asyncio.create_task(self._auto_recover())
+            
+            # Return black frame while recovering
             from PIL import Image
             return Image.new('RGB', (640, 480), color=(0, 0, 0))
     
@@ -174,8 +249,14 @@ class CameraManager:
             return image
         except Exception as e:
             logger.error(f"Failed to capture photo: {e}")
-            # Don't auto-restart - let caller decide what to do
-            # Just mark camera as needing reconnection
+            
+            # Check if PTP timeout triggered — attempt auto-recovery
+            if (self.camera and hasattr(self.camera, 'needs_usb_reset') 
+                    and self.camera.needs_usb_reset):
+                logger.warning("PTP timeout during capture — triggering auto-recovery")
+                asyncio.create_task(self._auto_recover())
+            
+            # Mark camera as needing reconnection
             self._is_initialized = False
             raise
     
@@ -246,6 +327,25 @@ class CameraManager:
                 "connected": False,
                 "error": str(e)
             }
+    
+    async def _auto_recover(self):
+        """Automatically attempt USB reset and camera reconnection.
+        
+        This runs as a background task when PTP timeouts are detected
+        during preview or capture operations.
+        """
+        logger.warning("=== AUTO-RECOVERY STARTED ===")
+        try:
+            success = await self.restart_camera(force_usb_reset=True)
+            if success:
+                logger.info("=== AUTO-RECOVERY SUCCEEDED ===")
+            else:
+                logger.error(
+                    "=== AUTO-RECOVERY FAILED === "
+                    "Camera may need physical power cycle."
+                )
+        except Exception as e:
+            logger.error(f"=== AUTO-RECOVERY ERROR: {e} ===")
     
     async def shutdown(self):
         """Shutdown camera manager."""

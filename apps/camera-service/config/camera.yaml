@@ -28,6 +28,13 @@ camera:
   max_restart_attempts: 3
   restart_delay: 5 # Seconds between restart attempts
 
+  # USB reset recovery for PTP timeout errors
+  recovery:
+    auto_usb_reset: true          # Enable automatic USB reset on PTP timeout
+    usb_vendor_id: "04a9"         # Canon USB vendor ID
+    usb_reset_settle_time: 3      # Seconds to wait after USB reset
+    max_usb_reset_attempts: 2     # Max USB resets before requiring physical power cycle
+
 server:
   host: "0.0.0.0"
   port: 8080
