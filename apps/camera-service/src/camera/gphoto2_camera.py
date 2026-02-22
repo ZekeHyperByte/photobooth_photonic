@@ -221,6 +221,34 @@ class GPhoto2Camera(BaseCamera):
                 logger.error(f"Failed to capture preview: {e}")
             raise RuntimeError(f"Preview capture failed: {e}")
     
+    def _set_capture_target(self, target_index: int = 1):
+        """Set capture target directly via gphoto2 widget API.
+        
+        Canon EOS cameras need this set explicitly before each capture
+        to activate Canon PTP capture extensions. Without this, capture
+        fails with [-1] Unspecified error.
+        
+        Args:
+            target_index: 0 = Internal RAM, 1 = Memory card
+        """
+        try:
+            config = self._camera.get_config(self._context)
+            target_widget = config.get_child_by_name('settings').get_child_by_name('capturetarget')
+            choices = [c for c in target_widget.get_choices()]
+            
+            if target_index < len(choices):
+                target_widget.set_value(choices[target_index])
+                self._camera.set_config(config, self._context)
+                logger.info(f"Capture target set to: {choices[target_index]} (index {target_index})")
+            else:
+                # Fallback: just set the first available choice
+                target_widget.set_value(choices[0])
+                self._camera.set_config(config, self._context)
+                logger.info(f"Capture target set to: {choices[0]} (fallback)")
+                
+        except Exception as e:
+            logger.warning(f"Could not set capture target: {e}")
+    
     def capture_photo(self, effect: Optional[str] = None) -> Image.Image:
         """Capture a photo."""
         # State validation: Can't capture while already capturing
@@ -234,15 +262,20 @@ class GPhoto2Camera(BaseCamera):
             self._state = CameraState.CAPTURING
             logger.info(f"Camera state: {self._state.value}")
             
-            # If we were previewing, disable viewfinder first
-            if previous_state == CameraState.PREVIEWING and self._preview_viewfinder:
-                logger.info("Stopping preview before capture...")
+            # Always disable viewfinder before capture (Canon EOS needs this
+            # even if our state tracking thinks we're not previewing, because
+            # the camera may still be in live view mode internally)
+            if self._preview_viewfinder:
+                logger.info("Disabling viewfinder before capture...")
                 try:
                     self.set_config_value('actions', 'viewfinder', 0)
-                    # Give camera time to stop preview
-                    time.sleep(0.2)
                 except Exception as e:
                     logger.warning(f"Could not disable viewfinder: {e}")
+            
+            # Give camera time to fully exit live view mode
+            # Canon EOS cameras need ~1-2 seconds to switch from live view to capture
+            logger.info("Waiting for camera to exit live view...")
+            time.sleep(1.5)
             
             # Set capture ISO if different from preview (non-critical)
             if self.capture_iso != self.preview_iso:
@@ -251,18 +284,20 @@ class GPhoto2Camera(BaseCamera):
                 except Exception as e:
                     logger.warning(f"Could not set capture ISO: {e}")
             
-            # IMPORTANT: Canon EOS cameras require capture target to be explicitly
-            # set before each capture to activate Canon PTP capture extensions.
-            # Without this, capture fails with [-1] Unspecified error.
-            try:
-                self.set_config_value('settings', 'capturetarget', 'Memory card')
-                logger.debug("Capture target set to Memory card")
-            except Exception as e:
-                logger.warning(f"Could not set capture target: {e}")
+            # CRITICAL: Set capture target before each capture
+            # This activates Canon PTP capture extensions
+            self._set_capture_target(target_index=1)  # 1 = Memory card
             
-            # Capture image
+            # Capture image (with one retry on failure)
             logger.info("Capturing photo...")
-            file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+            try:
+                file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+            except gp.GPhoto2Error as capture_err:
+                logger.warning(f"First capture attempt failed: {capture_err}, retrying...")
+                time.sleep(1.0)
+                # Retry with Internal RAM target as fallback
+                self._set_capture_target(target_index=0)  # 0 = Internal RAM
+                file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
             
             # CRITICAL: Wait for camera to save (like pibooth does)
             # This prevents "I/O in progress" errors
