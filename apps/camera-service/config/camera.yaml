@@ -41,5 +41,5 @@ server:
   log_level: "info"
 
 paths:
-  photos: "/app/photos"
-  temp: "/app/temp"
+  photos: "./photos"
+  temp: "./temp"
