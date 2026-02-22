@@ -273,9 +273,9 @@ class GPhoto2Camera(BaseCamera):
                     logger.warning(f"Could not disable viewfinder: {e}")
             
             # Give camera time to fully exit live view mode
-            # Canon EOS cameras need ~1-2 seconds to switch from live view to capture
+            # Canon EOS cameras need ~2-3 seconds to switch from live view to capture
             logger.info("Waiting for camera to exit live view...")
-            time.sleep(1.5)
+            time.sleep(2.5)
             
             # Set capture ISO if different from preview (non-critical)
             if self.capture_iso != self.preview_iso:
@@ -288,16 +288,31 @@ class GPhoto2Camera(BaseCamera):
             # This activates Canon PTP capture extensions
             self._set_capture_target(target_index=1)  # 1 = Memory card
             
-            # Capture image (with one retry on failure)
-            logger.info("Capturing photo...")
-            try:
-                file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
-            except gp.GPhoto2Error as capture_err:
-                logger.warning(f"First capture attempt failed: {capture_err}, retrying...")
-                time.sleep(1.0)
-                # Retry with Internal RAM target as fallback
-                self._set_capture_target(target_index=0)  # 0 = Internal RAM
-                file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+            # Wait for camera to process capture target change
+            time.sleep(0.5)
+            
+            # Capture image with retries (camera may still be busy)
+            file_path = None
+            max_capture_retries = 3
+            for attempt in range(max_capture_retries):
+                try:
+                    logger.info(f"Capturing photo (attempt {attempt + 1}/{max_capture_retries})...")
+                    file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+                    break  # Success
+                except gp.GPhoto2Error as capture_err:
+                    if attempt < max_capture_retries - 1:
+                        retry_delay = 2.0 + attempt  # 2s, 3s
+                        logger.warning(
+                            f"Capture attempt {attempt + 1} failed: {capture_err}, "
+                            f"retrying in {retry_delay}s..."
+                        )
+                        time.sleep(retry_delay)
+                        # Re-set capture target on retry
+                        self._set_capture_target(target_index=1)
+                        time.sleep(0.5)
+                    else:
+                        logger.error(f"All {max_capture_retries} capture attempts failed")
+                        raise
             
             # CRITICAL: Wait for camera to save (like pibooth does)
             # This prevents "I/O in progress" errors

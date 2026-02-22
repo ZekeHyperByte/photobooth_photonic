@@ -71,5 +71,12 @@ apps/frontend/release/
 photonic-iso-build/
 photonic-iso-build-v2/
 temp-pibooth/
-EDSDK132010CDwithRAW(13.20.10)/
+
 *.iso
+
+# Canon EDSDK (proprietary — do not commit)
+EDSDK*/
+CanonEosDigitalInfo*/
+
+# Photos (user data)
+photos/

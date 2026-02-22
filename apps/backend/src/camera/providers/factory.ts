@@ -6,10 +6,11 @@
 import { CameraProvider } from "../types";
 import { MockProvider } from "./mock";
 import { GPhoto2Provider } from "./gphoto2";
+import { EdsdkProvider } from "./edsdk";
 import { cameraLogger } from "../logger";
 import { env } from "../../config/env";
 
-export type ProviderType = "gphoto2" | "mock";
+export type ProviderType = "edsdk" | "gphoto2" | "mock";
 
 /**
  * Create a camera provider instance
@@ -23,6 +24,9 @@ export function createProvider(type?: ProviderType): CameraProvider {
   });
 
   switch (providerType) {
+    case "edsdk":
+      return new EdsdkProvider();
+
     case "gphoto2":
       return new GPhoto2Provider();
 
@@ -39,5 +43,5 @@ export function createProvider(type?: ProviderType): CameraProvider {
  * Get available provider types for current platform
  */
 export function getAvailableProviders(): ProviderType[] {
-  return ["mock", "gphoto2"];
+  return ["mock", "gphoto2", "edsdk"];
 }

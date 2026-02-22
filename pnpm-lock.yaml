@@ -142,6 +142,9 @@ importers:
       jsonwebtoken:
         specifier: ^9.0.2
         version: 9.0.3
+      koffi:
+        specifier: ^2.15.1
+        version: 2.15.1
       midtrans-client:
         specifier: ^1.4.3
         version: 1.4.3
@@ -4919,6 +4922,11 @@ packages:
     dependencies:
       json-buffer: 3.0.1
     dev: true
+
+  /koffi@2.15.1:
+    resolution: {integrity: sha512-mnc0C0crx/xMSljb5s9QbnLrlFHprioFO1hkXyuSuO/QtbpLDa0l/uM21944UfQunMKmp3/r789DTDxVyyH6aA==}
+    requiresBuild: true
+    dev: false
 
   /konva@9.3.22:
     resolution: {integrity: sha512-yQI5d1bmELlD/fowuyfOp9ff+oamg26WOCkyqUyc+nczD/lhRa3EvD2MZOoc4c1293TAubW9n34fSQLgSeEgSw==}

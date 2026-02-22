@@ -12,7 +12,8 @@ export const env: {
   tempPhotoPath: string;
   mockCamera: boolean;
   useWebcam: boolean;
-  cameraProvider: "edsdk" | "mock";
+  cameraProvider: "edsdk" | "gphoto2" | "mock";
+  edsdkLibPath?: string;
   payment: {
     provider: "mock" | "midtrans" | "xendit" | "stripe";
     midtrans?: {
@@ -48,7 +49,8 @@ export const env: {
   tempPhotoPath: process.env[ENV_KEYS.TEMP_PHOTO_PATH] || "./temp",
   mockCamera: process.env[ENV_KEYS.MOCK_CAMERA] === "true",
   useWebcam: process.env[ENV_KEYS.USE_WEBCAM] === "true",
-  cameraProvider: (process.env.CAMERA_PROVIDER || "mock") as "edsdk" | "mock",
+  cameraProvider: (process.env.CAMERA_PROVIDER || "mock") as "edsdk" | "gphoto2" | "mock",
+  edsdkLibPath: process.env.EDSDK_LIB_PATH,
 
   // Payment configuration
   payment: {
@@ -62,11 +64,11 @@ export const env: {
     // Midtrans configuration (only used if provider is 'midtrans')
     midtrans: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY]
       ? {
-          serverKey: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY] || "",
-          clientKey: process.env[ENV_KEYS.MIDTRANS_CLIENT_KEY] || "",
-          environment: (process.env[ENV_KEYS.MIDTRANS_ENVIRONMENT] ||
-            "sandbox") as "sandbox" | "production",
-        }
+        serverKey: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY] || "",
+        clientKey: process.env[ENV_KEYS.MIDTRANS_CLIENT_KEY] || "",
+        environment: (process.env[ENV_KEYS.MIDTRANS_ENVIRONMENT] ||
+          "sandbox") as "sandbox" | "production",
+      }
       : undefined,
   },
 
