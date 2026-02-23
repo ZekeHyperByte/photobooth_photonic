@@ -78,7 +78,7 @@ const EdsStateEventHandler = koffi.proto(
 // ============================================================================
 
 function getLibraryPath(): string {
-    // Check environment variable first
+    // Check environment variable first (highest priority)
     const envPath = process.env.EDSDK_LIB_PATH;
     if (envPath) {
         return envPath;
@@ -86,36 +86,51 @@ function getLibraryPath(): string {
 
     const platform = os.platform();
     const arch = os.arch();
+    const fs = require("fs");
+
+    // Project root is 4 levels up from __dirname (src/camera/bindings/)
+    const projectRoot = path.resolve(__dirname, "../../../..");
 
     if (platform === "win32") {
-        // Windows: look for EDSDK.dll in common locations
-        return process.env.EDSDK_DLL_PATH || "EDSDK.dll";
-    } else if (platform === "linux") {
-        // Linux: try to find libEDSDK.so
-        if (arch === "x64") {
-            // Check relative to project root
-            const projectPaths = [
-                path.resolve(
-                    __dirname,
-                    "../../../../EDSDK132010CDwithRAW(13.20.10)/Linux/EDSDK/Library/x86_64/libEDSDK.so",
-                ),
-                path.resolve(__dirname, "../../../lib/libEDSDK.so"),
-                "/usr/local/lib/libEDSDK.so",
-                "./libEDSDK.so",
-            ];
-            for (const p of projectPaths) {
-                try {
-                    require("fs").accessSync(p);
-                    return p;
-                } catch {
-                    continue;
-                }
+        // Windows: search edsdk-deploy first, then fallback
+        const searchPaths = [
+            path.join(projectRoot, "edsdk-deploy", "v13.20.10-win64", "EDSDK.dll"),
+            path.join(projectRoot, "edsdk-deploy", "v3.5", "EDSDK.dll"),
+            path.join(projectRoot, "edsdk-deploy", "v2.14", "EDSDK.dll"),
+            "EDSDK.dll", // System PATH fallback
+        ];
+        for (const p of searchPaths) {
+            try {
+                fs.accessSync(p);
+                return p;
+            } catch {
+                continue;
             }
-        } else if (arch === "arm64") {
-            return path.resolve(
-                __dirname,
-                "../../../../EDSDK132010CDwithRAW(13.20.10)/Linux/EDSDK/Library/ARM64/libEDSDK.so",
-            );
+        }
+        return "EDSDK.dll";
+    } else if (platform === "linux") {
+        const searchPaths =
+            arch === "x64"
+                ? [
+                    path.join(projectRoot, "edsdk-deploy", "v13.20.10-linux", "x86_64", "libEDSDK.so"),
+                    path.join(projectRoot, "EDSDK132010CDwithRAW(13.20.10)", "Linux", "EDSDK", "Library", "x86_64", "libEDSDK.so"),
+                    "/usr/local/lib/libEDSDK.so",
+                    "./libEDSDK.so",
+                ]
+                : [
+                    path.join(projectRoot, "edsdk-deploy", "v13.20.10-linux", "ARM64", "libEDSDK.so"),
+                    path.join(projectRoot, "EDSDK132010CDwithRAW(13.20.10)", "Linux", "EDSDK", "Library", "ARM64", "libEDSDK.so"),
+                    "/usr/local/lib/libEDSDK.so",
+                    "./libEDSDK.so",
+                ];
+
+        for (const p of searchPaths) {
+            try {
+                fs.accessSync(p);
+                return p;
+            } catch {
+                continue;
+            }
         }
         return "libEDSDK.so";
     } else if (platform === "darwin") {

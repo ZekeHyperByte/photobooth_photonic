@@ -127,7 +127,7 @@ export class CameraService {
     stream.on("error", (err) => {
       this._isStreaming = false;
       cameraLogger.error("Stream error:", err);
-      this.provider.stopLiveView().catch(() => {});
+      this.provider.stopLiveView().catch(() => { });
     });
 
     return stream;
@@ -225,7 +225,7 @@ export class CameraService {
       if (wasStreaming) {
         logger.info("Restarting preview stream after error...");
         await new Promise((resolve) => setTimeout(resolve, 500));
-        await this.startPreviewStream().catch(() => {});
+        await this.startPreviewStream().catch(() => { });
       }
 
       throw error;
@@ -265,13 +265,11 @@ export class CameraService {
 
     logger.info("Configuring camera:", settings);
 
-    // Map settings to EDSDK properties
-    const {
-      kEdsPropID_ISOSpeed,
-      kEdsPropID_WhiteBalance,
-      kEdsPropID_Av,
-      kEdsPropID_Tv,
-    } = await import("../camera/bindings/constants");
+    // EDSDK property IDs (inlined to avoid dependency on bindings)
+    const kEdsPropID_ISOSpeed = 0x00000402;
+    const kEdsPropID_WhiteBalance = 0x00000403;
+    const kEdsPropID_Av = 0x00000405;
+    const kEdsPropID_Tv = 0x00000406;
 
     const configured: CameraSettings = {};
 
@@ -369,7 +367,7 @@ export function getCameraService(): CameraService {
 
 export function resetCameraService(): void {
   if (cameraService) {
-    cameraService.disconnect().catch(() => {});
+    cameraService.disconnect().catch(() => { });
     cameraService = null;
   }
 }

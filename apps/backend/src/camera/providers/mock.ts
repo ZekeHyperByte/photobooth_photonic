@@ -181,7 +181,7 @@ export class MockProvider implements CameraProvider {
         whiteBalance: "auto",
         imageFormat: "JPEG",
       },
-      edsMetadata: {
+      providerMetadata: {
         protocolVersion: "Mock 1.0",
         availableShots: 9999,
         lensName: "Mock Lens EF-S 18-55mm",
