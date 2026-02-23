@@ -17,15 +17,19 @@ import { cameraLogger } from "../logger";
 // Type definitions for koffi
 // ============================================================================
 
+// Define opaque void pointer ONCE (koffi doesn't allow duplicate type names)
+const Opaque = koffi.opaque("EdsOpaque");
+const VoidPtr = koffi.pointer("EdsVoidPtr", Opaque);
+
 // Opaque pointer types - EDSDK uses these as handles
-const EdsBaseRef = koffi.pointer("EdsBaseRef", koffi.opaque());
-const EdsCameraListRef = koffi.pointer("EdsCameraListRef", koffi.opaque());
-const EdsCameraRef = koffi.pointer("EdsCameraRef", koffi.opaque());
-const EdsStreamRef = koffi.pointer("EdsStreamRef", koffi.opaque());
-const EdsEvfImageRef = koffi.pointer("EdsEvfImageRef", koffi.opaque());
+const EdsBaseRef = koffi.pointer("EdsBaseRef", Opaque);
+const EdsCameraListRef = koffi.pointer("EdsCameraListRef", Opaque);
+const EdsCameraRef = koffi.pointer("EdsCameraRef", Opaque);
+const EdsStreamRef = koffi.pointer("EdsStreamRef", Opaque);
+const EdsEvfImageRef = koffi.pointer("EdsEvfImageRef", Opaque);
 const EdsDirectoryItemRef = koffi.pointer(
     "EdsDirectoryItemRef",
-    koffi.opaque(),
+    Opaque,
 );
 
 // Struct: EdsDeviceInfo
@@ -58,19 +62,19 @@ const EdsDirectoryItemInfo = koffi.struct("EdsDirectoryItemInfo", {
 const EdsObjectEventHandler = koffi.proto(
     "EdsObjectEventHandler",
     "uint32",
-    ["uint32", koffi.pointer("void", koffi.opaque()), koffi.pointer("void", koffi.opaque())],
+    ["uint32", VoidPtr, VoidPtr],
 );
 
 const EdsPropertyEventHandler = koffi.proto(
     "EdsPropertyEventHandler",
     "uint32",
-    ["uint32", "uint32", "uint32", koffi.pointer("void", koffi.opaque())],
+    ["uint32", "uint32", "uint32", VoidPtr],
 );
 
 const EdsStateEventHandler = koffi.proto(
     "EdsStateEventHandler",
     "uint32",
-    ["uint32", "uint32", koffi.pointer("void", koffi.opaque())],
+    ["uint32", "uint32", VoidPtr],
 );
 
 // ============================================================================
@@ -212,14 +216,14 @@ export function loadEdsdkLibrary(): EdsdkBindings {
             "uint32",
             "int32",
             "uint32",
-            koffi.out(koffi.pointer("void", koffi.opaque())),
+            koffi.out(VoidPtr),
         ]),
         EdsSetPropertyData: lib.func("EdsSetPropertyData", "uint32", [
             EdsBaseRef,
             "uint32",
             "int32",
             "uint32",
-            koffi.pointer("void", koffi.opaque()),
+            VoidPtr,
         ]),
 
         // Capacity
@@ -241,7 +245,7 @@ export function loadEdsdkLibrary(): EdsdkBindings {
         ]),
         EdsGetPointer: lib.func("EdsGetPointer", "uint32", [
             EdsStreamRef,
-            koffi.out(koffi.pointer(koffi.pointer("void", koffi.opaque()))),
+            koffi.out(koffi.pointer(VoidPtr)),
         ]),
         EdsGetLength: lib.func("EdsGetLength", "uint32", [
             EdsStreamRef,
@@ -280,7 +284,7 @@ export function loadEdsdkLibrary(): EdsdkBindings {
             EdsCameraRef,
             "uint32",
             koffi.pointer(EdsObjectEventHandler),
-            koffi.pointer("void", koffi.opaque()),
+            VoidPtr,
         ]),
         EdsSetPropertyEventHandler: lib.func(
             "EdsSetPropertyEventHandler",
@@ -289,14 +293,14 @@ export function loadEdsdkLibrary(): EdsdkBindings {
                 EdsCameraRef,
                 "uint32",
                 koffi.pointer(EdsPropertyEventHandler),
-                koffi.pointer("void", koffi.opaque()),
+                VoidPtr,
             ],
         ),
         EdsSetStateEventHandler: lib.func("EdsSetCameraStateEventHandler", "uint32", [
             EdsCameraRef,
             "uint32",
             koffi.pointer(EdsStateEventHandler),
-            koffi.pointer("void", koffi.opaque()),
+            VoidPtr,
         ]),
 
         // Event polling (Linux/console)
