@@ -204,7 +204,10 @@ export class EdsdkProvider implements CameraProvider {
                 metadata: {
                     model: this.cameraModel,
                     timestamp: new Date().toISOString(),
-                    ...metadata,
+                    iso: metadata.iso,
+                    shutterSpeed: metadata.shutterSpeed,
+                    aperture: metadata.aperture,
+                    focalLength: metadata.focalLength,
                 },
             };
         } catch (error) {
