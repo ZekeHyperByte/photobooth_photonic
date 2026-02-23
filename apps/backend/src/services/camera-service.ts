@@ -92,6 +92,12 @@ export class CameraService {
         while (true) {
           const frame = await provider.getLiveViewFrame();
 
+          // Skip empty frames (camera not ready yet)
+          if (!frame || frame.length === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            continue;
+          }
+
           // MJPEG boundary and headers
           const mjpegFrame = Buffer.concat([
             Buffer.from("--myboundary\r\n"),

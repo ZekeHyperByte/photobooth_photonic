@@ -203,12 +203,12 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           data: {
             cameras: status.connected
               ? [
-                  {
-                    model: status.model,
-                    port: "usb",
-                    abilities: ["capture", "preview"],
-                  },
-                ]
+                {
+                  model: status.model,
+                  port: "usb",
+                  abilities: ["capture", "preview"],
+                },
+              ]
               : [],
           },
         });
@@ -232,8 +232,9 @@ export async function cameraRoutes(fastify: FastifyInstance) {
     "/api/camera/mode",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const cameraService = getCameraService();
-        const mode = (cameraService as any).cameraMode;
+        // Derive mode from provider type — edsdk and gphoto2 are DSLR modes
+        const providerType = process.env.CAMERA_PROVIDER || "mock";
+        const mode = (providerType === "edsdk" || providerType === "gphoto2") ? "dslr" : "webcam";
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
