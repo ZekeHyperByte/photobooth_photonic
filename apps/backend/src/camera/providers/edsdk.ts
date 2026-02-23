@@ -72,6 +72,7 @@ export class EdsdkProvider implements CameraProvider {
             if (cameraCount === 0) {
                 throw new CameraError("No Canon cameras detected", {
                     operation: "initialize",
+                    timestamp: new Date().toISOString(),
                 });
             }
 
@@ -330,6 +331,7 @@ export class EdsdkProvider implements CameraProvider {
         if (!this.liveViewActive || !this.sdk) {
             throw new CameraError("Live view not started", {
                 operation: "getLiveViewFrame",
+                timestamp: new Date().toISOString(),
             });
         }
 
@@ -339,6 +341,7 @@ export class EdsdkProvider implements CameraProvider {
         if (err !== C.EDS_ERR_OK) {
             throw new CameraError(`Failed to create memory stream: ${C.edsErrorToString(err)}`, {
                 operation: "getLiveViewFrame",
+                timestamp: new Date().toISOString(),
             });
         }
         const stream = streamOut[0];
@@ -350,6 +353,7 @@ export class EdsdkProvider implements CameraProvider {
             if (err !== C.EDS_ERR_OK) {
                 throw new CameraError(`Failed to create EVF ref: ${C.edsErrorToString(err)}`, {
                     operation: "getLiveViewFrame",
+                    timestamp: new Date().toISOString(),
                 });
             }
             const evfImage = evfOut[0];
@@ -357,13 +361,14 @@ export class EdsdkProvider implements CameraProvider {
             try {
                 // Download EVF image
                 err = this.sdk.EdsDownloadEvfImage(this.cameraRef, evfImage);
-                if (err === C.EDS_ERR_OBJECT_NOTREADY) {
-                    // Camera not ready yet, return empty buffer
+                if (err === 0x00000041) {
+                    // EDS_ERR_OBJECT_NOTREADY — camera not ready yet
                     return Buffer.alloc(0);
                 }
                 if (err !== C.EDS_ERR_OK) {
                     throw new CameraError(`Failed to download EVF: ${C.edsErrorToString(err)}`, {
                         operation: "getLiveViewFrame",
+                        timestamp: new Date().toISOString(),
                     });
                 }
 
