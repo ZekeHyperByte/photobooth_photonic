@@ -92,8 +92,16 @@ function getLibraryPath(): string {
     const arch = os.arch();
     const fs = require("fs");
 
-    // Project root is 4 levels up from __dirname (src/camera/bindings/)
-    const projectRoot = path.resolve(__dirname, "../../../..");
+    // Find project root by walking up from __dirname looking for edsdk-deploy/
+    // Works from both src/camera/bindings/ and dist/camera/bindings/
+    let projectRoot = __dirname;
+    for (let i = 0; i < 8; i++) {
+        const candidate = path.resolve(projectRoot, "..");
+        if (candidate === projectRoot) break; // reached filesystem root
+        projectRoot = candidate;
+        if (fs.existsSync(path.join(projectRoot, "edsdk-deploy"))) break;
+        if (fs.existsSync(path.join(projectRoot, "apps")) && fs.existsSync(path.join(projectRoot, "package.json"))) break;
+    }
 
     if (platform === "win32") {
         // Windows: search edsdk-deploy first, then fallback
