@@ -660,6 +660,24 @@ export class EdsdkProvider implements CameraProvider {
           return Buffer.alloc(0);
         }
 
+        // Handle stream/object errors - EVF not available or not ready
+        if (err === C.EDS_ERR_STREAM_NOT_OPEN || err === C.EDS_ERR_OBJECT_NOTREADY) {
+          this.evfErrorCount++;
+          const now = Date.now();
+          if (now - this.lastEvfErrorLogTime > 5000) {
+            cameraLogger.warn(
+              `EdsdkProvider: EVF stream not available (Canon 550D limitation with SDK v${this.state.sdkVersion}). ` +
+              `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
+              { error: C.edsErrorToString(err), code: `0x${err.toString(16)}` },
+            );
+            this.lastEvfErrorLogTime = now;
+            this.evfErrorCount = 0;
+            // Disable live view to prevent further errors
+            this.liveViewActive = false;
+          }
+          return Buffer.alloc(0);
+        }
+
         if (err === C.EDS_ERR_COMM_USB_BUS_ERR) {
           this.evfErrorCount++;
           const now = Date.now();

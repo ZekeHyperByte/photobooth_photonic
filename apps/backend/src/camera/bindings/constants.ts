@@ -199,6 +199,10 @@ export const EDS_ERR_INVALID_OBJECTFORMATCODE = 0x0000200b;
 // Communication errors
 export const EDS_ERR_COMM_USB_BUS_ERR = 0x80008102; // USB communication error - often transient during live view
 
+// Stream/Object errors
+export const EDS_ERR_STREAM_NOT_OPEN = 0x0000a102; // Stream not open - EVF not available
+export const EDS_ERR_OBJECT_NOTREADY = 0x0000a101; // Object not ready
+
 // ============================================================================
 // Helper: error code to string
 // ============================================================================
@@ -218,6 +222,8 @@ const ERROR_MAP: Record<number, string> = {
   [EDS_ERR_NOT_SUPPORTED]: "Not supported",
   [EDS_ERR_INTERNAL_ERROR]: "Internal error",
   [EDS_ERR_COMM_USB_BUS_ERR]: "USB communication error",
+  [EDS_ERR_STREAM_NOT_OPEN]: "Stream not open (EVF not available)",
+  [EDS_ERR_OBJECT_NOTREADY]: "Object not ready",
 };
 
 export function edsErrorToString(err: number): string {
