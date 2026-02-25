@@ -334,6 +334,17 @@ export class EdsdkProvider implements CameraProvider {
       }
     }
 
+    // Dismiss Quick Control screen (if showing) before capture
+    // Canon 550D shows Q menu after live view - needs shutter half-press to dismiss
+    cameraLogger.debug("EdsdkProvider: Dismissing Quick Control screen...");
+    try {
+      await this.triggerFocus();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      cameraLogger.debug("EdsdkProvider: Quick Control screen dismissed");
+    } catch (error) {
+      cameraLogger.debug("EdsdkProvider: Failed to dismiss Q screen, proceeding anyway...");
+    }
+
     await this.checkStorageStatus();
 
     const filename = `${sessionId}_${sequenceNumber}_${nanoid()}.jpg`;
