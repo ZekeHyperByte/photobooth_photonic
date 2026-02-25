@@ -165,8 +165,12 @@ export interface CameraProvider {
 
   /**
    * Get camera status and information
+   * @param options - Optional configuration
+   * @param options.includeSettings - If true, reads detailed camera settings (slower)
    */
-  getStatus(): Promise<ExtendedCameraStatusResponse>;
+  getStatus(options?: {
+    includeSettings?: boolean;
+  }): Promise<ExtendedCameraStatusResponse>;
 
   // Utility
 

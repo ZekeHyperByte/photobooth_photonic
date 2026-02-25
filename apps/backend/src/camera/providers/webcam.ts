@@ -80,7 +80,7 @@ export class WebcamProvider implements CameraProvider {
     return null;
   }
 
-  async getStatus(): Promise<ExtendedCameraStatusResponse> {
+  async getStatus(_options?: { includeSettings?: boolean }): Promise<ExtendedCameraStatusResponse> {
     return {
       connected: this.connected,
       model: "Webcam",

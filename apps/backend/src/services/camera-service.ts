@@ -250,7 +250,7 @@ export class CameraService {
     }
   }
 
-  async getStatus(): Promise<CameraStatusResponse> {
+  async getStatus(options?: { includeSettings?: boolean }): Promise<CameraStatusResponse> {
     if (!this.isInitialized) {
       return {
         connected: false,
@@ -262,7 +262,7 @@ export class CameraService {
     }
 
     try {
-      const status = await this.provider.getStatus();
+      const status = await this.provider.getStatus(options);
       return status;
     } catch (error: any) {
       logger.error("Failed to get camera status:", error.message);

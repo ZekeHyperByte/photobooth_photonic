@@ -40,6 +40,7 @@ import * as C from "../bindings/constants";
 import { CameraEventPump } from "../event-pump";
 import { CameraWatchdog } from "../watchdog";
 import { CaptureMutex, CaptureQueueMode } from "../mutex";
+import { withTimeout } from "../utils";
 
 interface CaptureState {
   sessionId?: string;
@@ -752,31 +753,66 @@ export class EdsdkProvider implements CameraProvider {
     );
   }
 
-  async getProperty(propertyId: number): Promise<any> {
+  // Cache for property values to avoid repeated slow reads
+  private propertyCache: Map<number, { value: any; timestamp: number }> = new Map();
+  private readonly CACHE_TTL_MS = 5000; // 5 second cache
+
+  async getProperty(propertyId: number, timeoutMs: number = 3000): Promise<any> {
     if (!this.isConnected() || !this.sdk) {
       throw new CameraNotInitializedError("getProperty");
     }
 
-    const data = Buffer.alloc(4);
-    const err = this.sdk.EdsGetPropertyData(
-      this.cameraRef,
-      propertyId,
-      0,
-      4,
-      data,
-    );
+    // Check cache first
+    const cached = this.propertyCache.get(propertyId);
+    if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL_MS) {
+      return cached.value;
+    }
 
-    if (err !== C.EDS_ERR_OK) {
+    try {
+      const data = Buffer.alloc(4);
+      
+      // Wrap the FFI call with a timeout to prevent blocking
+      await withTimeout(
+        () => {
+          const err = this.sdk!.EdsGetPropertyData(
+            this.cameraRef,
+            propertyId,
+            0,
+            4,
+            data,
+          );
+          if (err !== C.EDS_ERR_OK) {
+            throw new Error(`EdsGetPropertyData failed with error: ${err}`);
+          }
+        },
+        timeoutMs,
+        `getProperty(0x${propertyId.toString(16)})`
+      );
+
+      const value = data.readUInt32LE();
+      
+      // Cache the result
+      this.propertyCache.set(propertyId, { value, timestamp: Date.now() });
+      
+      return value;
+    } catch (error) {
       cameraLogger.warn(
-        `EdsdkProvider: Failed to get property 0x${propertyId.toString(16)}: ${C.edsErrorToString(err)}`,
+        `EdsdkProvider: Failed to get property 0x${propertyId.toString(16)}: ${error instanceof Error ? error.message : String(error)}`,
       );
       return null;
     }
-
-    return data.readUInt32LE();
   }
 
-  async getStatus(): Promise<ExtendedCameraStatusResponse> {
+  /**
+   * Clear the property cache
+   */
+  clearPropertyCache(): void {
+    this.propertyCache.clear();
+  }
+
+  async getStatus(options?: { includeSettings?: boolean }): Promise<ExtendedCameraStatusResponse> {
+    const includeSettings = options?.includeSettings ?? false;
+
     if (!this.isConnected()) {
       return {
         connected: false,
@@ -788,12 +824,31 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     try {
-      const battery =
-        (await this.getProperty(C.kEdsPropID_BatteryLevel)) ?? 100;
-      const iso = await this.getProperty(C.kEdsPropID_ISOSpeed);
-      const av = await this.getProperty(C.kEdsPropID_Av);
-      const tv = await this.getProperty(C.kEdsPropID_Tv);
-      const wb = await this.getProperty(C.kEdsPropID_WhiteBalance);
+      // Only read battery (essential) with a short timeout
+      // Other properties are slow and not critical for health check
+      const battery = await this.getProperty(C.kEdsPropID_BatteryLevel, 2000) ?? 100;
+      
+      // For detailed settings, only fetch if explicitly requested
+      let iso: any = null;
+      let av: any = null;
+      let tv: any = null;
+      let wb: any = null;
+      
+      if (includeSettings) {
+        // Read settings with short timeouts - don't block on failure
+        try {
+          iso = await this.getProperty(C.kEdsPropID_ISOSpeed, 1000);
+        } catch { /* ignore timeout */ }
+        try {
+          av = await this.getProperty(C.kEdsPropID_Av, 1000);
+        } catch { /* ignore timeout */ }
+        try {
+          tv = await this.getProperty(C.kEdsPropID_Tv, 1000);
+        } catch { /* ignore timeout */ }
+        try {
+          wb = await this.getProperty(C.kEdsPropID_WhiteBalance, 1000);
+        } catch { /* ignore timeout */ }
+      }
 
       const sdCardInfo = await this.getSdCardInfo();
       const watchdogStatus = this.watchdog?.getStatus();
@@ -803,11 +858,16 @@ export class EdsdkProvider implements CameraProvider {
         model: this.cameraModel,
         battery: typeof battery === "number" ? battery : 100,
         storageAvailable: sdCardInfo.present && sdCardInfo.freeSpaceMB !== null,
-        settings: {
+        settings: includeSettings ? {
           iso: iso ? String(iso) : "Auto",
           aperture: av ? `f/${av}` : "Auto",
           shutterSpeed: tv ? String(tv) : "Auto",
           whiteBalance: wb ? String(wb) : "Auto",
+        } : {
+          iso: "Auto",
+          aperture: "Auto",
+          shutterSpeed: "Auto",
+          whiteBalance: "Auto",
         },
         providerMetadata: {
           provider: "edsdk",
@@ -841,7 +901,19 @@ export class EdsdkProvider implements CameraProvider {
       };
     } catch (error) {
       cameraLogger.error("EdsdkProvider: Failed to get status", { error });
-      throw error;
+      // Return degraded status instead of throwing
+      return {
+        connected: true,
+        model: this.cameraModel,
+        battery: 0,
+        storageAvailable: false,
+        settings: {
+          iso: "Unknown",
+          aperture: "Unknown",
+          shutterSpeed: "Unknown",
+          whiteBalance: "Unknown",
+        },
+      };
     }
   }
 

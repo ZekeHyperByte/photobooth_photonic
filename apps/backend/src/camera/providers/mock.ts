@@ -231,7 +231,7 @@ export class MockProvider implements CameraProvider {
     return null;
   }
 
-  async getStatus(): Promise<ExtendedCameraStatusResponse> {
+  async getStatus(_options?: { includeSettings?: boolean }): Promise<ExtendedCameraStatusResponse> {
     // Simulate battery drain in disconnect mode
     let battery = 100;
     if (this.failureMode === "disconnect" && this.connected) {

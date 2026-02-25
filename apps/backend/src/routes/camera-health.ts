@@ -62,8 +62,9 @@ export async function cameraHealthRoutes(fastify: FastifyInstance) {
       try {
         const cameraService = getCameraService();
         
-        // Wrap getStatus in a timeout promise
-        const statusPromise = cameraService.getStatus();
+        // Get status without settings - much faster
+        // This only checks battery and basic connectivity
+        const statusPromise = cameraService.getStatus({ includeSettings: false });
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Camera health check timeout')), TIMEOUT_MS);
         });
