@@ -14,11 +14,11 @@ import { Readable } from "stream";
 // New camera module imports
 import {
   CameraProvider,
-  createProvider,
   cameraLogger,
   CaptureResult,
   ExtendedCameraStatusResponse,
 } from "../camera";
+import { getCameraManager } from "../camera/camera-manager";
 
 const logger = createLogger("camera-service");
 
@@ -37,24 +37,36 @@ export class CameraService {
   private isInitialized = false;
   private _isStreaming = false;
 
-  constructor() {
-    // Create provider based on configuration
-    this.provider = createProvider();
-
-    logger.info(`Camera service using ${env.cameraProvider} provider`, {
-      platform: process.platform,
-    });
+  constructor(provider?: CameraProvider) {
+    if (provider) {
+      // Use provided provider (from CameraManager)
+      this.provider = provider;
+      logger.info("Camera service using provider from CameraManager", {
+        platform: process.platform,
+      });
+    } else {
+      // Fallback: get provider from CameraManager
+      try {
+        const cameraManager = getCameraManager();
+        this.provider = cameraManager.getActiveProvider();
+        logger.info("Camera service using CameraManager's active provider", {
+          platform: process.platform,
+        });
+      } catch (error) {
+        logger.error("CameraManager not initialized, camera service will not work");
+        throw new Error("CameraManager must be initialized before CameraService");
+      }
+    }
   }
 
   async initialize(): Promise<void> {
-    try {
-      await this.provider.initialize();
+    // CameraService now relies on CameraManager's provider being initialized
+    // Provider is already initialized by CameraManager
+    if (this.provider.isConnected()) {
       this.isInitialized = true;
-      logger.info("Camera service initialized successfully");
-    } catch (error: any) {
-      logger.error("Failed to initialize camera service:", error.message);
-      // Don't throw - allow service to start without camera
-      // Camera will be initialized on first capture attempt
+      logger.info("Camera service initialized (using CameraManager provider)");
+    } else {
+      logger.warn("Camera provider not connected, waiting for CameraManager");
     }
   }
 
@@ -364,9 +376,9 @@ export class CameraService {
 
 let cameraService: CameraService | null = null;
 
-export function getCameraService(): CameraService {
+export function getCameraService(provider?: CameraProvider): CameraService {
   if (!cameraService) {
-    cameraService = new CameraService();
+    cameraService = new CameraService(provider);
   }
   return cameraService;
 }

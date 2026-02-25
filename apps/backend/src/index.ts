@@ -130,8 +130,9 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     logger.info(`Environment: ${env.nodeEnv}`);
     logger.info(`Database: ${env.databasePath} (optional)`);
 
-    // Initialize CameraManager for multi-camera support
+    // Initialize CameraManager for multi-camera support (must be first)
     const cameraManager = getCameraManager();
+    let activeProvider = null;
     try {
       await cameraManager.initialize();
       logger.info("CameraManager initialized with multi-camera support");
@@ -148,6 +149,10 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
           })),
         );
       }
+
+      // Get the active provider from CameraManager
+      activeProvider = cameraManager.getActiveProvider();
+      logger.info("Got active camera provider from CameraManager");
     } catch (error) {
       logger.warn(
         "CameraManager initialization failed, will retry on first capture",
@@ -155,14 +160,16 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       );
     }
 
-    // Initialize camera service (legacy compatibility)
-    const cameraService = getCameraService();
+    // Initialize camera service using CameraManager's provider
+    // This prevents double initialization of EDSDK
+    const cameraService = getCameraService(activeProvider);
     try {
       await cameraService.initialize();
-      logger.info("Camera service initialized");
+      logger.info("Camera service initialized (using CameraManager provider)");
     } catch (error) {
       logger.warn(
         "Camera service initialization failed, will retry on first capture",
+        error,
       );
     }
 

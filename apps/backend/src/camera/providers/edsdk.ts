@@ -100,6 +100,11 @@ export class EdsdkProvider implements CameraProvider {
   private frameConsumerReady = true;
   private frameDropThresholdMs: number;
 
+  // Store event handlers to prevent garbage collection by koffi
+  private objectEventHandler: any = null;
+  private propertyEventHandler: any = null;
+  private stateEventHandler: any = null;
+
   constructor() {
     this.eventPump = new CameraEventPump(60);
     this.captureMutex = new CaptureMutex(env.captureQueueMode);
@@ -114,12 +119,16 @@ export class EdsdkProvider implements CameraProvider {
       const sdkInfo = getLoadedSdkInfo();
       this.state.sdkVersion = sdkInfo.version;
       this.state.dllPath = sdkInfo.dllPath;
-      cameraLogger.info(`EdsdkProvider: SDK loaded - version: ${sdkInfo.version}, path: ${sdkInfo.dllPath}`);
+      cameraLogger.info(
+        `EdsdkProvider: SDK loaded - version: ${sdkInfo.version}, path: ${sdkInfo.dllPath}`,
+      );
 
       cameraLogger.info("EdsdkProvider: Initializing EDSDK...");
       const err = this.sdk.EdsInitializeSDK();
       if (err !== C.EDS_ERR_OK) {
-        cameraLogger.error(`EdsdkProvider: EdsInitializeSDK failed with error code: 0x${err.toString(16)} (${err})`);
+        cameraLogger.error(
+          `EdsdkProvider: EdsInitializeSDK failed with error code: 0x${err.toString(16)} (${err})`,
+        );
         throw mapEdsErrorToTypedError(err, { operation: "initialize" });
       }
       cameraLogger.info("EdsdkProvider: EDSDK initialized successfully");
@@ -883,7 +892,12 @@ export class EdsdkProvider implements CameraProvider {
   private setupEventHandlers(): void {
     if (!this.sdk || !this.cameraRef) return;
 
-    const objectHandler = (event: number, ref: any, _context: any): number => {
+    // Store handlers as instance properties to prevent garbage collection
+    this.objectEventHandler = (
+      event: number,
+      ref: any,
+      _context: any,
+    ): number => {
       if (
         event === C.kEdsObjectEvent_DirItemRequestTransfer &&
         this.pendingCapture
@@ -896,11 +910,11 @@ export class EdsdkProvider implements CameraProvider {
     this.sdk.EdsSetObjectEventHandler(
       this.cameraRef,
       C.kEdsObjectEvent_All,
-      objectHandler as any,
+      this.objectEventHandler as any,
       null,
     );
 
-    const propertyHandler = (
+    this.propertyEventHandler = (
       event: number,
       propertyId: number,
       param: number,
@@ -916,11 +930,11 @@ export class EdsdkProvider implements CameraProvider {
     this.sdk.EdsSetPropertyEventHandler(
       this.cameraRef,
       C.kEdsPropertyEvent_All,
-      propertyHandler as any,
+      this.propertyEventHandler as any,
       null,
     );
 
-    const stateHandler = (
+    this.stateEventHandler = (
       event: number,
       param: number,
       _context: any,
@@ -943,11 +957,13 @@ export class EdsdkProvider implements CameraProvider {
     this.sdk.EdsSetStateEventHandler(
       this.cameraRef,
       C.kEdsStateEvent_All,
-      stateHandler as any,
+      this.stateEventHandler as any,
       null,
     );
 
-    cameraLogger.info("EdsdkProvider: Event handlers registered");
+    cameraLogger.info(
+      "EdsdkProvider: Event handlers registered (persisted to prevent GC)",
+    );
   }
 
   private handleCaptureDownload(directoryItem: any): void {
@@ -1348,6 +1364,11 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     unloadEdsdkLibrary();
+
+    // Clear event handlers to allow garbage collection
+    this.objectEventHandler = null;
+    this.propertyEventHandler = null;
+    this.stateEventHandler = null;
 
     this.state = {
       captureCount: 0,
