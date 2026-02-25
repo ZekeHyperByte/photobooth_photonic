@@ -318,6 +318,16 @@ export class EdsdkProvider implements CameraProvider {
 
     if (this.liveViewActive) {
       await this.stopLiveView();
+      
+      // After stopping live view, poll for camera readiness
+      // Canon 550D needs time for mirror to settle and AF to re-initialize
+      cameraLogger.debug("EdsdkProvider: Polling for camera readiness after live view...");
+      const isReady = await this.pollForCameraReady(5000, 200);
+      if (!isReady) {
+        cameraLogger.warn("EdsdkProvider: Camera not ready after live view, proceeding anyway...");
+      } else {
+        cameraLogger.debug("EdsdkProvider: Camera is ready for capture");
+      }
     }
 
     await this.checkStorageStatus();
@@ -618,6 +628,60 @@ export class EdsdkProvider implements CameraProvider {
     this.evfErrorCount = 0;
 
     cameraLogger.info("EdsdkProvider: Live view started successfully");
+  }
+
+  /**
+   * Poll for camera readiness after live view or other operations
+   * Checks if camera can accept capture commands
+   */
+  private async pollForCameraReady(
+    timeoutMs: number = 5000,
+    intervalMs: number = 200
+  ): Promise<boolean> {
+    const startTime = Date.now();
+    let attempts = 0;
+    
+    while (Date.now() - startTime < timeoutMs) {
+      attempts++;
+      
+      try {
+        // Try to get battery level as a readiness test
+        // If camera is busy, this will fail with DEVICE_BUSY
+        const testBuf = Buffer.alloc(4);
+        const err = this.sdk!.EdsGetPropertyData(
+          this.cameraRef,
+          C.kEdsPropID_BatteryLevel,
+          0,
+          4,
+          testBuf
+        );
+        
+        // Also check if camera is in a capture-ready state
+        // by attempting to get the current shooting mode
+        const modeBuf = Buffer.alloc(4);
+        const modeErr = this.sdk!.EdsGetPropertyData(
+          this.cameraRef,
+          C.kEdsPropID_AEMode,
+          0,
+          4,
+          modeBuf
+        );
+        
+        if (err !== C.EDS_ERR_DEVICE_BUSY && modeErr !== C.EDS_ERR_DEVICE_BUSY) {
+          cameraLogger.debug(`EdsdkProvider: Camera ready after ${attempts} attempts (${Date.now() - startTime}ms)`);
+          return true;
+        }
+        
+        cameraLogger.debug(`EdsdkProvider: Camera busy (attempt ${attempts}), waiting...`);
+      } catch (error) {
+        cameraLogger.debug(`EdsdkProvider: Camera readiness check failed (attempt ${attempts}): ${error}`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    
+    cameraLogger.warn(`EdsdkProvider: Camera not ready after ${timeoutMs}ms (${attempts} attempts)`);
+    return false;
   }
 
   /**
