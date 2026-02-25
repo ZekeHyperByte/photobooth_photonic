@@ -736,8 +736,10 @@ export class EdsdkProvider implements CameraProvider {
       return;
     }
 
-    cameraLogger.info("EdsdkProvider: Stopping live view");
+    cameraLogger.info("EdsdkProvider: Stopping live view sequence");
 
+    // Step 1: Set output device back to TFT (camera LCD)
+    cameraLogger.debug("EdsdkProvider: Setting output device to TFT...");
     const outputDevice = Buffer.alloc(4);
     outputDevice.writeUInt32LE(C.kEdsEvfOutputDevice_TFT);
     const outputErr = this.sdk.EdsSetPropertyData(
@@ -750,13 +752,20 @@ export class EdsdkProvider implements CameraProvider {
 
     if (outputErr !== C.EDS_ERR_OK) {
       cameraLogger.warn(
-        `EdsdkProvider: Failed to set output device: ${C.edsErrorToString(outputErr)}`,
+        `EdsdkProvider: Failed to set output device to TFT: ${C.edsErrorToString(outputErr)}`,
       );
     }
 
+    // Step 2: Wait for camera LCD to activate
+    // This gives the camera time to switch output from PC back to TFT
+    cameraLogger.debug("EdsdkProvider: Waiting for camera LCD activation...");
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Step 3: Disable EVF mode to exit live view
+    cameraLogger.debug("EdsdkProvider: Disabling EVF mode...");
     const evfMode = Buffer.alloc(4);
     evfMode.writeUInt32LE(0);
-    this.sdk.EdsSetPropertyData(
+    const evfErr = this.sdk.EdsSetPropertyData(
       this.cameraRef,
       C.kEdsPropID_Evf_Mode,
       0,
@@ -764,10 +773,56 @@ export class EdsdkProvider implements CameraProvider {
       evfMode,
     );
 
+    if (evfErr !== C.EDS_ERR_OK) {
+      cameraLogger.warn(
+        `EdsdkProvider: Failed to disable EVF mode: ${C.edsErrorToString(evfErr)}`,
+      );
+    }
+
+    // Step 4: Wait for mirror to flip down and return to normal shooting mode
+    // This is critical for 550D - it needs time to physically exit live view
+    cameraLogger.debug("EdsdkProvider: Waiting for mirror flip and mode transition...");
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Step 5: Verify camera has exited live view mode
+    cameraLogger.debug("EdsdkProvider: Verifying camera exited live view...");
+    const currentMode = await this.getPropertyWithRetry(
+      C.kEdsPropID_Evf_Mode,
+      3,
+      200
+    );
+    
+    if (currentMode === 0) {
+      cameraLogger.debug("EdsdkProvider: Camera successfully exited live view mode");
+    } else {
+      cameraLogger.warn(`EdsdkProvider: Camera may still be in live view mode (EVF mode: ${currentMode}), attempting forced exit...`);
+      
+      // Force disable EVF mode one more time
+      const forceEvfMode = Buffer.alloc(4);
+      forceEvfMode.writeUInt32LE(0);
+      const forceErr = this.sdk.EdsSetPropertyData(
+        this.cameraRef,
+        C.kEdsPropID_Evf_Mode,
+        0,
+        4,
+        forceEvfMode,
+      );
+      
+      if (forceErr !== C.EDS_ERR_OK) {
+        cameraLogger.warn(
+          `EdsdkProvider: Force disable EVF mode failed: ${C.edsErrorToString(forceErr)}`,
+        );
+      }
+      
+      // Additional wait after force attempt
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Mark live view as inactive
     this.liveViewActive = false;
     this.frameConsumerReady = true;
 
-    cameraLogger.info("EdsdkProvider: Live view stopped", {
+    cameraLogger.info("EdsdkProvider: Live view stopped successfully", {
       totalFrames: this.liveViewStats.frameCount,
       droppedFrames: this.liveViewStats.droppedFrames,
       avgFps: this.liveViewStats.fps.toFixed(1),
