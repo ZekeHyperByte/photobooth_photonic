@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import { nanoid } from "nanoid";
 import os from "os";
+import koffi from "koffi";
 import {
   CameraProvider,
   CaptureResult,
@@ -31,6 +32,9 @@ import {
   unloadEdsdkLibrary,
   checkSdkVersionCompatibility,
   getLoadedSdkInfo,
+  EdsObjectEventHandler,
+  EdsPropertyEventHandler,
+  EdsStateEventHandler,
 } from "../bindings/edsdk-bindings";
 import * as C from "../bindings/constants";
 import { CameraEventPump } from "../event-pump";
@@ -104,6 +108,11 @@ export class EdsdkProvider implements CameraProvider {
   private objectEventHandler: any = null;
   private propertyEventHandler: any = null;
   private stateEventHandler: any = null;
+
+  // Registered callback handles for koffi
+  private registeredObjectHandler: any = null;
+  private registeredPropertyHandler: any = null;
+  private registeredStateHandler: any = null;
 
   constructor() {
     this.eventPump = new CameraEventPump(60);
@@ -907,10 +916,16 @@ export class EdsdkProvider implements CameraProvider {
       return C.EDS_ERR_OK;
     };
 
+    // Register callback with koffi for asynchronous calls
+    this.registeredObjectHandler = koffi.register(
+      this.objectEventHandler,
+      koffi.pointer(EdsObjectEventHandler),
+    );
+
     this.sdk.EdsSetObjectEventHandler(
       this.cameraRef,
       C.kEdsObjectEvent_All,
-      this.objectEventHandler as any,
+      this.registeredObjectHandler,
       null,
     );
 
@@ -927,10 +942,16 @@ export class EdsdkProvider implements CameraProvider {
       return C.EDS_ERR_OK;
     };
 
+    // Register callback with koffi for asynchronous calls
+    this.registeredPropertyHandler = koffi.register(
+      this.propertyEventHandler,
+      koffi.pointer(EdsPropertyEventHandler),
+    );
+
     this.sdk.EdsSetPropertyEventHandler(
       this.cameraRef,
       C.kEdsPropertyEvent_All,
-      this.propertyEventHandler as any,
+      this.registeredPropertyHandler,
       null,
     );
 
@@ -954,16 +975,20 @@ export class EdsdkProvider implements CameraProvider {
       return C.EDS_ERR_OK;
     };
 
+    // Register callback with koffi for asynchronous calls
+    this.registeredStateHandler = koffi.register(
+      this.stateEventHandler,
+      koffi.pointer(EdsStateEventHandler),
+    );
+
     this.sdk.EdsSetStateEventHandler(
       this.cameraRef,
       C.kEdsStateEvent_All,
-      this.stateEventHandler as any,
+      this.registeredStateHandler,
       null,
     );
 
-    cameraLogger.info(
-      "EdsdkProvider: Event handlers registered (persisted to prevent GC)",
-    );
+    cameraLogger.info("EdsdkProvider: Event handlers registered with koffi");
   }
 
   private handleCaptureDownload(directoryItem: any): void {
@@ -1364,6 +1389,20 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     unloadEdsdkLibrary();
+
+    // Unregister koffi callbacks
+    if (this.registeredObjectHandler) {
+      koffi.unregister(this.registeredObjectHandler);
+      this.registeredObjectHandler = null;
+    }
+    if (this.registeredPropertyHandler) {
+      koffi.unregister(this.registeredPropertyHandler);
+      this.registeredPropertyHandler = null;
+    }
+    if (this.registeredStateHandler) {
+      koffi.unregister(this.registeredStateHandler);
+      this.registeredStateHandler = null;
+    }
 
     // Clear event handlers to allow garbage collection
     this.objectEventHandler = null;

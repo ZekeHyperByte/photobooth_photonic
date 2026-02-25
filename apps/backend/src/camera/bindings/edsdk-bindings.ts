@@ -88,20 +88,20 @@ const EdsDirectoryItemInfo = koffi.struct("EdsDirectoryItemInfo", {
   dateTime: "uint32",
 });
 
-// Callback types
-const EdsObjectEventHandler = koffi.proto("EdsObjectEventHandler", "uint32", [
+// Callback types - exported for use in providers
+export const EdsObjectEventHandler = koffi.proto("EdsObjectEventHandler", "uint32", [
   "uint32",
   VoidPtr,
   VoidPtr,
 ]);
 
-const EdsPropertyEventHandler = koffi.proto(
+export const EdsPropertyEventHandler = koffi.proto(
   "EdsPropertyEventHandler",
   "uint32",
   ["uint32", "uint32", "uint32", VoidPtr],
 );
 
-const EdsStateEventHandler = koffi.proto("EdsStateEventHandler", "uint32", [
+export const EdsStateEventHandler = koffi.proto("EdsStateEventHandler", "uint32", [
   "uint32",
   "uint32",
   VoidPtr,
