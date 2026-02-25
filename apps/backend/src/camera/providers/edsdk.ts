@@ -692,11 +692,30 @@ export class EdsdkProvider implements CameraProvider {
         const pointerOut = [null];
         this.sdk.EdsGetPointer(stream, pointerOut);
 
-        const buffer = Buffer.from(
-          pointerOut[0] as any as ArrayBuffer,
-          0,
-          length,
-        );
+        // Decode the image data from the pointer using koffi
+        // pointerOut[0] is a koffi External pointer, not the actual data
+        let buffer: Buffer;
+        try {
+          // Read the data as a Uint8Array from the pointer address
+          const imageData = koffi.decode(pointerOut[0], "uint8", length);
+          // Convert to Buffer
+          buffer = Buffer.from(imageData);
+        } catch (decodeError) {
+          cameraLogger.error(
+            "EdsdkProvider: Failed to decode live view image data",
+            {
+              error:
+                decodeError instanceof Error
+                  ? decodeError.message
+                  : String(decodeError),
+              length,
+            },
+          );
+          throw new LiveViewError(
+            `Failed to decode live view image: ${decodeError instanceof Error ? decodeError.message : String(decodeError)}`,
+            { operation: "getLiveViewFrame" },
+          );
+        }
 
         const now = Date.now();
         const timeDelta = now - this.liveViewStats.lastFrameTime;
@@ -708,7 +727,7 @@ export class EdsdkProvider implements CameraProvider {
         this.liveViewStats.lastFrameTime = now;
         this.liveViewStats.frameCount++;
 
-        return Buffer.from(buffer);
+        return buffer;
       } finally {
         this.sdk.EdsRelease(evfImage);
       }
@@ -754,23 +773,27 @@ export class EdsdkProvider implements CameraProvider {
   }
 
   // Cache for property values to avoid repeated slow reads
-  private propertyCache: Map<number, { value: any; timestamp: number }> = new Map();
+  private propertyCache: Map<number, { value: any; timestamp: number }> =
+    new Map();
   private readonly CACHE_TTL_MS = 5000; // 5 second cache
 
-  async getProperty(propertyId: number, timeoutMs: number = 3000): Promise<any> {
+  async getProperty(
+    propertyId: number,
+    timeoutMs: number = 3000,
+  ): Promise<any> {
     if (!this.isConnected() || !this.sdk) {
       throw new CameraNotInitializedError("getProperty");
     }
 
     // Check cache first
     const cached = this.propertyCache.get(propertyId);
-    if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL_MS) {
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
       return cached.value;
     }
 
     try {
       const data = Buffer.alloc(4);
-      
+
       // Wrap the FFI call with a timeout to prevent blocking
       await withTimeout(
         () => {
@@ -786,14 +809,14 @@ export class EdsdkProvider implements CameraProvider {
           }
         },
         timeoutMs,
-        `getProperty(0x${propertyId.toString(16)})`
+        `getProperty(0x${propertyId.toString(16)})`,
       );
 
       const value = data.readUInt32LE();
-      
+
       // Cache the result
       this.propertyCache.set(propertyId, { value, timestamp: Date.now() });
-      
+
       return value;
     } catch (error) {
       cameraLogger.warn(
@@ -810,7 +833,9 @@ export class EdsdkProvider implements CameraProvider {
     this.propertyCache.clear();
   }
 
-  async getStatus(options?: { includeSettings?: boolean }): Promise<ExtendedCameraStatusResponse> {
+  async getStatus(options?: {
+    includeSettings?: boolean;
+  }): Promise<ExtendedCameraStatusResponse> {
     const includeSettings = options?.includeSettings ?? false;
 
     if (!this.isConnected()) {
@@ -826,28 +851,37 @@ export class EdsdkProvider implements CameraProvider {
     try {
       // Only read battery (essential) with a short timeout
       // Other properties are slow and not critical for health check
-      const battery = await this.getProperty(C.kEdsPropID_BatteryLevel, 2000) ?? 100;
-      
+      const battery =
+        (await this.getProperty(C.kEdsPropID_BatteryLevel, 2000)) ?? 100;
+
       // For detailed settings, only fetch if explicitly requested
       let iso: any = null;
       let av: any = null;
       let tv: any = null;
       let wb: any = null;
-      
+
       if (includeSettings) {
         // Read settings with short timeouts - don't block on failure
         try {
           iso = await this.getProperty(C.kEdsPropID_ISOSpeed, 1000);
-        } catch { /* ignore timeout */ }
+        } catch {
+          /* ignore timeout */
+        }
         try {
           av = await this.getProperty(C.kEdsPropID_Av, 1000);
-        } catch { /* ignore timeout */ }
+        } catch {
+          /* ignore timeout */
+        }
         try {
           tv = await this.getProperty(C.kEdsPropID_Tv, 1000);
-        } catch { /* ignore timeout */ }
+        } catch {
+          /* ignore timeout */
+        }
         try {
           wb = await this.getProperty(C.kEdsPropID_WhiteBalance, 1000);
-        } catch { /* ignore timeout */ }
+        } catch {
+          /* ignore timeout */
+        }
       }
 
       const sdCardInfo = await this.getSdCardInfo();
@@ -858,17 +892,19 @@ export class EdsdkProvider implements CameraProvider {
         model: this.cameraModel,
         battery: typeof battery === "number" ? battery : 100,
         storageAvailable: sdCardInfo.present && sdCardInfo.freeSpaceMB !== null,
-        settings: includeSettings ? {
-          iso: iso ? String(iso) : "Auto",
-          aperture: av ? `f/${av}` : "Auto",
-          shutterSpeed: tv ? String(tv) : "Auto",
-          whiteBalance: wb ? String(wb) : "Auto",
-        } : {
-          iso: "Auto",
-          aperture: "Auto",
-          shutterSpeed: "Auto",
-          whiteBalance: "Auto",
-        },
+        settings: includeSettings
+          ? {
+              iso: iso ? String(iso) : "Auto",
+              aperture: av ? `f/${av}` : "Auto",
+              shutterSpeed: tv ? String(tv) : "Auto",
+              whiteBalance: wb ? String(wb) : "Auto",
+            }
+          : {
+              iso: "Auto",
+              aperture: "Auto",
+              shutterSpeed: "Auto",
+              whiteBalance: "Auto",
+            },
         providerMetadata: {
           provider: "edsdk",
           liveViewActive: this.liveViewActive,
