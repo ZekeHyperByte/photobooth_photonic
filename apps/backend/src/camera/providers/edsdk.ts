@@ -318,13 +318,17 @@ export class EdsdkProvider implements CameraProvider {
 
     if (this.liveViewActive) {
       await this.stopLiveView();
-      
+
       // After stopping live view, poll for camera readiness
       // Canon 550D needs time for mirror to settle and AF to re-initialize
-      cameraLogger.debug("EdsdkProvider: Polling for camera readiness after live view...");
+      cameraLogger.debug(
+        "EdsdkProvider: Polling for camera readiness after live view...",
+      );
       const isReady = await this.pollForCameraReady(5000, 200);
       if (!isReady) {
-        cameraLogger.warn("EdsdkProvider: Camera not ready after live view, proceeding anyway...");
+        cameraLogger.warn(
+          "EdsdkProvider: Camera not ready after live view, proceeding anyway...",
+        );
       } else {
         cameraLogger.debug("EdsdkProvider: Camera is ready for capture");
       }
@@ -518,11 +522,13 @@ export class EdsdkProvider implements CameraProvider {
       4,
       evfMode,
     );
-    
+
     if (evfModeErr !== C.EDS_ERR_OK) {
       // For 550D, this is often EDS_ERR_DEVICE_BUSY initially
       if (evfModeErr === C.EDS_ERR_DEVICE_BUSY) {
-        cameraLogger.info("EdsdkProvider: Camera busy, waiting for ready state...");
+        cameraLogger.info(
+          "EdsdkProvider: Camera busy, waiting for ready state...",
+        );
         const ready = await this.waitForCameraReady(5000); // Wait up to 5 seconds
         if (ready) {
           // Retry setting EVF mode
@@ -535,11 +541,11 @@ export class EdsdkProvider implements CameraProvider {
           );
         }
       }
-      
+
       if (evfModeErr !== C.EDS_ERR_OK && evfModeErr !== C.EDS_ERR_DEVICE_BUSY) {
         throw new LiveViewError(
           `Failed to enable EVF mode: ${C.edsErrorToString(evfModeErr)}`,
-          { operation: "startLiveView", metadata: { step: "setEvfMode" } }
+          { operation: "startLiveView", metadata: { step: "setEvfMode" } },
         );
       }
     }
@@ -547,17 +553,19 @@ export class EdsdkProvider implements CameraProvider {
     // Step 2: Wait for camera to physically enter live view
     // 550D needs 500-1000ms for mirror flip
     cameraLogger.debug("EdsdkProvider: Waiting for mirror flip...");
-    await new Promise(resolve => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     // Step 3: Verify EVF mode was actually set
     const currentMode = await this.getPropertyWithRetry(
       C.kEdsPropID_Evf_Mode,
       5,
-      200
+      200,
     );
-    
+
     if (currentMode !== 1) {
-      cameraLogger.warn(`EdsdkProvider: EVF mode not set, current: ${currentMode}, retrying...`);
+      cameraLogger.warn(
+        `EdsdkProvider: EVF mode not set, current: ${currentMode}, retrying...`,
+      );
       // Retry once
       const retryErr = this.sdk.EdsSetPropertyData(
         this.cameraRef,
@@ -569,10 +577,10 @@ export class EdsdkProvider implements CameraProvider {
       if (retryErr !== C.EDS_ERR_OK) {
         throw new LiveViewError(
           `Failed to enable EVF mode on retry: ${C.edsErrorToString(retryErr)}`,
-          { operation: "startLiveView", metadata: { step: "retryEvfMode" } }
+          { operation: "startLiveView", metadata: { step: "retryEvfMode" } },
         );
       }
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
     // Step 4: Set Output Device to PC
@@ -589,28 +597,35 @@ export class EdsdkProvider implements CameraProvider {
     if (outputErr !== C.EDS_ERR_OK) {
       throw new LiveViewError(
         `Failed to set output device: ${C.edsErrorToString(outputErr)}`,
-        { operation: "startLiveView", metadata: { step: "setOutputDevice" } }
+        { operation: "startLiveView", metadata: { step: "setOutputDevice" } },
       );
     }
 
     // Step 5: Wait for EVF stream to be ready
-    cameraLogger.debug("EdsdkProvider: Waiting for EVF stream initialization...");
-    await new Promise(resolve => setTimeout(resolve, 300));
+    cameraLogger.debug(
+      "EdsdkProvider: Waiting for EVF stream initialization...",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Step 6: Test frame download before marking live view as active
     cameraLogger.debug("EdsdkProvider: Testing EVF stream...");
     const testFrame = await this.testEvfFrame();
-    
+
     if (!testFrame) {
       // Some cameras need a second attempt with longer delay
-      cameraLogger.warn("EdsdkProvider: First EVF test failed, retrying with extended delay...");
-      await new Promise(resolve => setTimeout(resolve, 800));
+      cameraLogger.warn(
+        "EdsdkProvider: First EVF test failed, retrying with extended delay...",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 800));
       const retryTest = await this.testEvfFrame();
-      
+
       if (!retryTest) {
         throw new LiveViewError(
           "EVF stream not available after retries. Camera may not support live view with current settings.",
-          { operation: "startLiveView", metadata: { step: "testEvfFrame", cameraModel: this.cameraModel } }
+          {
+            operation: "startLiveView",
+            metadata: { step: "testEvfFrame", cameraModel: this.cameraModel },
+          },
         );
       }
     }
@@ -636,14 +651,14 @@ export class EdsdkProvider implements CameraProvider {
    */
   private async pollForCameraReady(
     timeoutMs: number = 5000,
-    intervalMs: number = 200
+    intervalMs: number = 200,
   ): Promise<boolean> {
     const startTime = Date.now();
     let attempts = 0;
-    
+
     while (Date.now() - startTime < timeoutMs) {
       attempts++;
-      
+
       try {
         // Try to get battery level as a readiness test
         // If camera is busy, this will fail with DEVICE_BUSY
@@ -653,9 +668,9 @@ export class EdsdkProvider implements CameraProvider {
           C.kEdsPropID_BatteryLevel,
           0,
           4,
-          testBuf
+          testBuf,
         );
-        
+
         // Also check if camera is in a capture-ready state
         // by attempting to get the current shooting mode
         const modeBuf = Buffer.alloc(4);
@@ -664,23 +679,34 @@ export class EdsdkProvider implements CameraProvider {
           C.kEdsPropID_AEMode,
           0,
           4,
-          modeBuf
+          modeBuf,
         );
-        
-        if (err !== C.EDS_ERR_DEVICE_BUSY && modeErr !== C.EDS_ERR_DEVICE_BUSY) {
-          cameraLogger.debug(`EdsdkProvider: Camera ready after ${attempts} attempts (${Date.now() - startTime}ms)`);
+
+        if (
+          err !== C.EDS_ERR_DEVICE_BUSY &&
+          modeErr !== C.EDS_ERR_DEVICE_BUSY
+        ) {
+          cameraLogger.debug(
+            `EdsdkProvider: Camera ready after ${attempts} attempts (${Date.now() - startTime}ms)`,
+          );
           return true;
         }
-        
-        cameraLogger.debug(`EdsdkProvider: Camera busy (attempt ${attempts}), waiting...`);
+
+        cameraLogger.debug(
+          `EdsdkProvider: Camera busy (attempt ${attempts}), waiting...`,
+        );
       } catch (error) {
-        cameraLogger.debug(`EdsdkProvider: Camera readiness check failed (attempt ${attempts}): ${error}`);
+        cameraLogger.debug(
+          `EdsdkProvider: Camera readiness check failed (attempt ${attempts}): ${error}`,
+        );
       }
-      
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
-    
-    cameraLogger.warn(`EdsdkProvider: Camera not ready after ${timeoutMs}ms (${attempts} attempts)`);
+
+    cameraLogger.warn(
+      `EdsdkProvider: Camera not ready after ${timeoutMs}ms (${attempts} attempts)`,
+    );
     return false;
   }
 
@@ -690,7 +716,7 @@ export class EdsdkProvider implements CameraProvider {
   private async waitForCameraReady(timeoutMs: number = 5000): Promise<boolean> {
     const startTime = Date.now();
     const checkInterval = 100;
-    
+
     while (Date.now() - startTime < timeoutMs) {
       // Try to get a property - will fail with DEVICE_BUSY if camera is busy
       try {
@@ -700,19 +726,19 @@ export class EdsdkProvider implements CameraProvider {
           C.kEdsPropID_BatteryLevel,
           0,
           4,
-          testBuf
+          testBuf,
         );
-        
+
         if (err !== C.EDS_ERR_DEVICE_BUSY) {
           return true;
         }
       } catch {
         // Ignore errors during polling
       }
-      
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
+
+      await new Promise((resolve) => setTimeout(resolve, checkInterval));
     }
-    
+
     return false;
   }
 
@@ -722,32 +748,32 @@ export class EdsdkProvider implements CameraProvider {
   private async getPropertyWithRetry(
     propertyId: number,
     maxRetries: number = 5,
-    retryDelayMs: number = 200
+    retryDelayMs: number = 200,
   ): Promise<number | null> {
     for (let i = 0; i < maxRetries; i++) {
       const buf = Buffer.alloc(4);
-      
+
       const err = this.sdk!.EdsGetPropertyData(
         this.cameraRef,
         propertyId,
         0,
         4,
-        buf
+        buf,
       );
-      
+
       if (err === C.EDS_ERR_OK) {
         return buf.readUInt32LE(0);
       }
-      
+
       if (err === C.EDS_ERR_DEVICE_BUSY) {
-        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         continue;
       }
-      
+
       // Non-retryable error
       return null;
     }
-    
+
     return null;
   }
 
@@ -758,7 +784,7 @@ export class EdsdkProvider implements CameraProvider {
     if (!this.sdk || !this.cameraRef) {
       return false;
     }
-    
+
     try {
       const streamOut = [null];
       let err = this.sdk.EdsCreateMemoryStream(BigInt(0), streamOut);
@@ -766,7 +792,7 @@ export class EdsdkProvider implements CameraProvider {
         return false;
       }
       const stream = streamOut[0];
-      
+
       try {
         const evfOut = [null];
         err = this.sdk.EdsCreateEvfImageRef(stream, evfOut);
@@ -774,15 +800,15 @@ export class EdsdkProvider implements CameraProvider {
           return false;
         }
         const evfImage = evfOut[0];
-        
+
         try {
           err = this.sdk.EdsDownloadEvfImage(this.cameraRef, evfImage);
-          
+
           // Success or expected "no data yet" error (0x00000041 = EDS_ERR_OBJECT_NOTREADY)
           if (err === C.EDS_ERR_OK || err === 0x00000041) {
             return true;
           }
-          
+
           return false;
         } finally {
           this.sdk.EdsRelease(evfImage);
@@ -823,7 +849,7 @@ export class EdsdkProvider implements CameraProvider {
     // Step 2: Wait for camera LCD to activate
     // This gives the camera time to switch output from PC back to TFT
     cameraLogger.debug("EdsdkProvider: Waiting for camera LCD activation...");
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Step 3: Disable EVF mode to exit live view
     cameraLogger.debug("EdsdkProvider: Disabling EVF mode...");
@@ -844,23 +870,30 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     // Step 4: Wait for mirror to flip down and return to normal shooting mode
-    // This is critical for 550D - it needs time to physically exit live view
-    cameraLogger.debug("EdsdkProvider: Waiting for mirror flip and mode transition...");
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Canon 550D needs ~3 seconds total for mechanical mirror flip and AF system reset
+    // Based on DSLR Booth timing patterns
+    cameraLogger.debug(
+      "EdsdkProvider: Waiting for mirror flip and mode transition (3s)...",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     // Step 5: Verify camera has exited live view mode
     cameraLogger.debug("EdsdkProvider: Verifying camera exited live view...");
     const currentMode = await this.getPropertyWithRetry(
       C.kEdsPropID_Evf_Mode,
       3,
-      200
+      200,
     );
-    
+
     if (currentMode === 0) {
-      cameraLogger.debug("EdsdkProvider: Camera successfully exited live view mode");
+      cameraLogger.debug(
+        "EdsdkProvider: Camera successfully exited live view mode",
+      );
     } else {
-      cameraLogger.warn(`EdsdkProvider: Camera may still be in live view mode (EVF mode: ${currentMode}), attempting forced exit...`);
-      
+      cameraLogger.warn(
+        `EdsdkProvider: Camera may still be in live view mode (EVF mode: ${currentMode}), attempting forced exit...`,
+      );
+
       // Force disable EVF mode one more time
       const forceEvfMode = Buffer.alloc(4);
       forceEvfMode.writeUInt32LE(0);
@@ -871,15 +904,15 @@ export class EdsdkProvider implements CameraProvider {
         4,
         forceEvfMode,
       );
-      
+
       if (forceErr !== C.EDS_ERR_OK) {
         cameraLogger.warn(
           `EdsdkProvider: Force disable EVF mode failed: ${C.edsErrorToString(forceErr)}`,
         );
       }
-      
+
       // Additional wait after force attempt
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
     // Mark live view as inactive
@@ -966,13 +999,16 @@ export class EdsdkProvider implements CameraProvider {
         }
 
         // Handle stream/object errors - EVF not available or not ready
-        if (err === C.EDS_ERR_STREAM_NOT_OPEN || err === C.EDS_ERR_OBJECT_NOTREADY) {
+        if (
+          err === C.EDS_ERR_STREAM_NOT_OPEN ||
+          err === C.EDS_ERR_OBJECT_NOTREADY
+        ) {
           this.evfErrorCount++;
           const now = Date.now();
           if (now - this.lastEvfErrorLogTime > 5000) {
             cameraLogger.warn(
               `EdsdkProvider: EVF stream not available (Canon 550D limitation with SDK v${this.state.sdkVersion}). ` +
-              `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
+                `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
               { error: C.edsErrorToString(err), code: `0x${err.toString(16)}` },
             );
             this.lastEvfErrorLogTime = now;
