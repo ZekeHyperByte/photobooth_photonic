@@ -56,10 +56,19 @@ export async function cameraHealthRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/api/camera/health",
     async (_request: FastifyRequest, reply: FastifyReply) => {
+      // Add timeout to prevent hanging
+      const TIMEOUT_MS = 10000; // 10 second timeout
+      
       try {
         const cameraService = getCameraService();
-        const status =
-          (await cameraService.getStatus()) as ExtendedCameraStatusResponse;
+        
+        // Wrap getStatus in a timeout promise
+        const statusPromise = cameraService.getStatus();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Camera health check timeout')), TIMEOUT_MS);
+        });
+        
+        const status = await Promise.race([statusPromise, timeoutPromise]) as ExtendedCameraStatusResponse;
 
         const health: CameraHealthResponse = {
           connected: status.connected,
@@ -100,6 +109,16 @@ export async function cameraHealthRoutes(fastify: FastifyInstance) {
         });
       } catch (error: any) {
         logger.error("Failed to get camera health:", error);
+        
+        // Check if it's a timeout
+        if (error.message === 'Camera health check timeout') {
+          return reply.code(HTTP_STATUS.SERVICE_UNAVAILABLE).send({
+            success: false,
+            error: "Health Check Timeout",
+            message: "Camera is not responding. The camera may be busy or disconnected.",
+          });
+        }
+        
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           error: "Health Check Failed",

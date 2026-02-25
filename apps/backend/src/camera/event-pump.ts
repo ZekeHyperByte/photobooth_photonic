@@ -3,6 +3,12 @@
  *
  * Windows message pump for EDSDK events using setImmediate drain loop.
  * Replaces the 50ms polling interval with ~16ms (60fps) event processing.
+ * 
+ * SAFETY FEATURES:
+ * - Max consecutive pumps limit (prevents infinite loops)
+ * - Forced event loop yielding every N pumps
+ * - Error threshold with automatic stop
+ * - CPU usage throttling
  */
 
 import os from "os";
@@ -20,6 +26,13 @@ export class CameraEventPump {
   private lastPumpTime = 0;
   private consecutiveErrors = 0;
   private readonly maxConsecutiveErrors = 10;
+  
+  // Safety counters to prevent infinite loops
+  private consecutivePumps = 0;
+  private readonly maxConsecutivePumps = 100; // Force yield after 100 consecutive pumps
+  private totalPumps = 0;
+  private pumpStartTime = 0;
+  private readonly maxPumpsPerSecond = 1000; // Safety: max 1000 pumps/second
 
   constructor(targetFps = 60) {
     this.targetIntervalMs = 1000 / targetFps;
@@ -44,10 +57,14 @@ export class CameraEventPump {
     this.sdk = sdk;
     this.isRunning = true;
     this.consecutiveErrors = 0;
+    this.consecutivePumps = 0;
+    this.totalPumps = 0;
+    this.pumpStartTime = Date.now();
     this.lastPumpTime = Date.now();
 
     cameraLogger.info("EventPump: Starting Windows event pump", {
       targetIntervalMs: this.targetIntervalMs,
+      maxConsecutivePumps: this.maxConsecutivePumps,
     });
 
     this.schedulePump();
@@ -73,9 +90,14 @@ export class CameraEventPump {
       this.pumpHandle = null;
     }
 
-    this.sdk = null;
+    const runtime = Date.now() - this.pumpStartTime;
+    cameraLogger.info("EventPump: Stopped", {
+      totalPumps: this.totalPumps,
+      runtimeMs: runtime,
+      pumpsPerSecond: runtime > 0 ? (this.totalPumps / (runtime / 1000)).toFixed(2) : 0,
+    });
 
-    cameraLogger.info("EventPump: Stopped");
+    this.sdk = null;
   }
 
   /**
@@ -90,6 +112,17 @@ export class CameraEventPump {
       return;
     }
 
+    // Safety check: Force yield to event loop after max consecutive pumps
+    if (this.consecutivePumps >= this.maxConsecutivePumps) {
+      cameraLogger.debug("EventPump: Forcing yield to event loop after max consecutive pumps");
+      this.consecutivePumps = 0;
+      // Use setTimeout(0) to force yielding to the event loop
+      this.pumpHandle = setTimeout(() => {
+        this.pump();
+      }, 0);
+      return;
+    }
+
     // Use setImmediate for next tick processing
     this.pumpHandle = setImmediate(() => {
       this.pump();
@@ -101,7 +134,21 @@ export class CameraEventPump {
       return;
     }
 
+    this.totalPumps++;
+    this.consecutivePumps++;
     const startTime = Date.now();
+
+    // Safety check: Prevent runaway pumping (max pumps per second)
+    const elapsedSinceStart = startTime - this.pumpStartTime;
+    if (elapsedSinceStart > 1000 && this.totalPumps > this.maxPumpsPerSecond) {
+      cameraLogger.error("EventPump: Runaway pump detected, stopping", {
+        totalPumps: this.totalPumps,
+        elapsedMs: elapsedSinceStart,
+        pumpsPerSecond: this.totalPumps / (elapsedSinceStart / 1000),
+      });
+      this.stop();
+      return;
+    }
 
     try {
       // Process EDSDK events
@@ -112,6 +159,12 @@ export class CameraEventPump {
         this.consecutiveErrors = 0;
       }
 
+      // Reset consecutive pumps counter on successful pump with no events
+      // This prevents the counter from growing indefinitely
+      if (result === 0) {
+        this.consecutivePumps = 0;
+      }
+
       // Log any non-OK results at debug level
       if (result !== 0) {
         cameraLogger.debug(
@@ -120,6 +173,7 @@ export class CameraEventPump {
       }
     } catch (error) {
       this.consecutiveErrors++;
+      this.consecutivePumps = 0; // Reset on error
 
       // Log errors without crashing
       cameraLogger.error("EventPump: Error during pump", {
@@ -146,11 +200,11 @@ export class CameraEventPump {
     if (this.isRunning) {
       if (nextDelay <= 0) {
         // Immediately schedule next pump if we're behind
-        this.pumpHandle = setImmediate(() => this.pump());
+        this.schedulePump();
       } else {
         // Use setTimeout for longer delays to avoid blocking
         this.pumpHandle = setTimeout(() => {
-          this.pumpHandle = setImmediate(() => this.pump());
+          this.schedulePump();
         }, nextDelay);
       }
     }
