@@ -1,6 +1,12 @@
-# Project Direction Change Summary
+# Project Direction Change Summary (DEPRECATED)
 
-## Overview
+> **⚠️ HISTORICAL DOCUMENT - NO LONGER ACCURATE**
+>
+> This document describes a direction change that was attempted but later reverted.
+> The project now uses **Windows-only EDSDK** as the primary and only supported platform.
+> Linux and gPhoto2 support have been removed.
+
+## Overview (Historical)
 
 This document summarizes the major architectural pivot from **Windows-only EDSDK** to **Linux-based gPhoto2** with a microservice architecture.
 
@@ -151,7 +157,7 @@ apps/camera-service/
 ├── config/camera.yaml          # Camera configuration
 ├── src/camera/
 │   ├── base.py                 # Abstract camera interface
-│   ├── gphoto2_camera.py       # gPhoto2 implementation
+│   ├── (removed - Windows-only EDSDK)
 │   └── manager.py              # Auto-restart manager
 └── src/websocket/
     └── handler.py              # WebSocket message handler

@@ -1,309 +1,241 @@
-# Photonic — Fresh Machine Setup Guide
+# Photonic — Windows Setup Guide
 
-> Complete guide for setting up the photobooth on a brand new computer.
-
----
-
-## Choose Your OS
-
-| | **Ubuntu 22.04** | **Windows 10/11** |
-|---|---|---|
-| Camera via EDSDK | ✅ (if supported) | ✅ |
-| Camera via gPhoto2 | ✅ (fallback) | ❌ |
-| Kiosk mode | Chromium `--kiosk` | Chromium `--kiosk` |
-| Printing | CUPS (`lp` command) | Windows print |
-| Recommended | Dev/testing | **Production** |
+> Complete guide for setting up the photobooth on Windows 10/11.
 
 ---
 
-## Option A: Ubuntu 22.04 Setup
+## Prerequisites
 
-### 1. Install System Dependencies
+- Windows 10 or 11 (64-bit)
+- Canon DSLR camera with USB cable
+- Internet connection
 
-```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
+---
 
-# Node.js 18 LTS
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt install -y nodejs
+## Installation Steps
 
-# pnpm
+### 1. Install Node.js
+
+Download and install Node.js 18 LTS from [nodejs.org](https://nodejs.org/)
+
+Verify installation:
+
+```powershell
+node --version  # Should show v18.x.x
+```
+
+### 2. Install pnpm
+
+```powershell
 npm install -g pnpm@8
-
-# Build tools (for native npm modules)
-sudo apt install -y build-essential python3 git
-
-# Image processing
-sudo apt install -y libvips-dev
-
-# gPhoto2 (fallback camera — only needed if EDSDK doesn't work)
-sudo apt install -y gphoto2 libgphoto2-dev
-
-# Chromium (kiosk browser)
-sudo apt install -y chromium-browser
-
-# Printing
-sudo apt install -y cups cups-client
-
-# Other
-sudo apt install -y curl zip unzip
 ```
 
-### 2. Disable gvfs (it steals the USB camera)
+### 3. Install Git
 
-```bash
-sudo systemctl stop gvfs-gphoto2-volume-monitor
-sudo systemctl mask gvfs-gphoto2-volume-monitor
-```
+Download and install Git from [git-scm.com](https://git-scm.com/)
 
-### 3. Clone & Setup Project
+### 4. Clone Repository
 
-```bash
-cd ~
-git clone <your-repo-url> photonic-v0.1
+```powershell
+git clone <repository-url>
 cd photonic-v0.1
-```
-
-### 4. Add EDSDK Files
-
-Download `edsdk-deploy.zip` from Google Drive and extract:
-
-```bash
-cd ~/photonic-v0.1
-unzip ~/Downloads/edsdk-deploy.zip
-# Verify:
-ls edsdk-deploy/
-# Should show: v13.20.10-linux/  v13.20.10-win64/  v2.14/  v3.5/  README.txt
 ```
 
 ### 5. Install Dependencies
 
-```bash
-cd ~/photonic-v0.1
+```powershell
 pnpm install
 ```
 
-### 6. Configure Environment
+### 6. Build Packages
 
-```bash
-cd ~/photonic-v0.1/apps/backend
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-NODE_ENV=development
-PORT=4000
-DEV_MODE=true
-
-# Camera: try 'edsdk' first, fall back to 'gphoto2' if it doesn't work
-CAMERA_PROVIDER=edsdk
-
-# Payment: use 'mock' for testing, 'midtrans' for production
-PAYMENT_PROVIDER=mock
-
-# Change this for production!
-ADMIN_PIN=1234
-```
-
-### 7. Build & Setup Database
-
-```bash
-cd ~/photonic-v0.1
-
-# Build everything
+```powershell
 pnpm build
-
-# Setup database
-cd apps/backend
-mkdir -p data
-pnpm db:migrate
-pnpm db:seed
-```
-
-### 8. Test Run
-
-```bash
-# Connect camera via USB first!
-
-# Start backend
-cd ~/photonic-v0.1/apps/backend
-pnpm dev
-```
-
-Check the logs:
-- ✅ `EdsdkProvider: Camera model: Canon EOS 550D` → EDSDK works!
-- ❌ `EDSDK ... Device not found` → Change to `CAMERA_PROVIDER=gphoto2`
-
-Then open browser to **http://localhost:4000**
-
-### 9. Kiosk Mode (Production)
-
-```bash
-# Auto-start backend
-cd ~/photonic-v0.1
-pm2 start apps/backend/dist/index.js --name photonic-backend
-pm2 save
-pm2 startup
-
-# Launch Chromium kiosk
-chromium-browser --kiosk --noerrdialogs --disable-infobars http://localhost:4000
 ```
 
 ---
 
-## Option B: Windows 10/11 Setup
+## EDSDK Setup
 
-### 1. Install Prerequisites
+### Download Canon EDSDK
 
-Download and install:
-- **Node.js 18 LTS**: https://nodejs.org → Windows Installer (.msi)
-- **Git**: https://git-scm.com/download/win
-- **Visual C++ Build Tools**: https://visualstudio.microsoft.com/visual-cpp-build-tools/
-  - Select "Desktop development with C++" workload
-
-Then in PowerShell (Admin):
-```powershell
-npm install -g pnpm@8
-```
-
-### 2. Clone & Setup Project
+1. Contact Canon to obtain EDSDK v13.20.10 or later
+2. Extract to a known location (e.g., `C:\Canon\EDSDK`)
+3. Set environment variable:
 
 ```powershell
-cd C:\Users\%USERNAME%
-git clone <your-repo-url> photonic-v0.1
-cd photonic-v0.1
+setx EDSDK_LIB_PATH "C:\Canon\EDSDK\EDSDK.dll"
 ```
 
-### 3. Add EDSDK Files
+### Alternative: Use Bundled EDSDK
 
-Download `edsdk-deploy.zip` from Google Drive and extract into the project root:
-
-```
-C:\Users\<user>\photonic-v0.1\
-├── apps\
-├── edsdk-deploy\          ← extract here
-│   ├── v13.20.10-win64\
-│   ├── v3.5\
-│   ├── v2.14\
-│   └── README.txt
-└── ...
-```
-
-### 4. Install Dependencies
+If you have the `edsdk-deploy` folder in the project:
 
 ```powershell
-cd C:\Users\%USERNAME%\photonic-v0.1
-pnpm install
+# Default paths are already configured in the application
+# The app will auto-detect EDSDK.dll in edsdk-deploy folders
 ```
 
-### 5. Configure Environment
+---
+
+## Database Setup
 
 ```powershell
-cd apps\backend
-copy .env.example .env
-notepad .env
-```
+cd apps/backend
 
-Set these values:
-
-```env
-NODE_ENV=development
-PORT=4000
-DEV_MODE=true
-CAMERA_PROVIDER=edsdk
-PAYMENT_PROVIDER=mock
-ADMIN_PIN=1234
-```
-
-### 6. Build & Setup Database
-
-```powershell
-cd C:\Users\%USERNAME%\photonic-v0.1
-
-# Build
-pnpm build
-
-# Database
-cd apps\backend
-mkdir data
+# Run migrations
 pnpm db:migrate
+
+# Seed sample data
 pnpm db:seed
 ```
 
-### 7. Test Run
+---
+
+## Environment Configuration
+
+Create `apps/backend/.env`:
+
+```env
+NODE_ENV=production
+PORT=4000
+DATABASE_PATH=./data/photobooth.db
+
+# Camera settings
+MOCK_CAMERA=false
+USE_WEBCAM=false
+CAMERA_PROVIDER=edsdk
+
+# EDSDK path (if not using default)
+EDSDK_LIB_PATH=C:\path\to\EDSDK.dll
+
+# Payment (Midtrans)
+MIDTRANS_SERVER_KEY=your_server_key
+MIDTRANS_CLIENT_KEY=your_client_key
+MIDTRANS_ENVIRONMENT=sandbox
+
+# WhatsApp delivery
+WHATSAPP_PROVIDER=fonnte
+WHATSAPP_API_KEY=your_api_key
+
+# Admin
+ADMIN_PIN=1234
+ADMIN_PORT=4001
+```
+
+---
+
+## Running the Application
+
+### Development Mode
 
 ```powershell
-# Connect camera via USB first!
+# Terminal 1: Backend
+cd apps/backend
+pnpm dev
 
-cd C:\Users\%USERNAME%\photonic-v0.1\apps\backend
+# Terminal 2: Frontend
+cd apps/frontend
+pnpm dev
+
+# Terminal 3: Admin
+cd apps/admin-web
 pnpm dev
 ```
 
-Check logs for camera detection. If v13.20.10 doesn't detect the 550D:
-```env
-# Edit .env and set the older SDK path:
-EDSDK_LIB_PATH=C:\Users\<user>\photonic-v0.1\edsdk-deploy\v3.5\EDSDK.dll
-```
+### Production Mode
 
-Then open browser to **http://localhost:4000**
-
-### 8. Kiosk Mode (Production)
+Run the PowerShell setup script as Administrator:
 
 ```powershell
-# Install PM2
-npm install -g pm2
-
-# Start backend  
-cd C:\Users\%USERNAME%\photonic-v0.1
-pm2 start apps\backend\dist\index.js --name photonic-backend
-pm2 save
-
-# Create a startup shortcut that runs:
-# pm2 resurrect && start chrome --kiosk http://localhost:4000
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\scripts\setup-photobooth-windows.ps1
 ```
+
+This will:
+
+- Install the application as a Windows service
+- Configure auto-start
+- Set up firewall rules
+
+---
+
+## Camera Configuration
+
+### Test Camera Connection
+
+```powershell
+# Check camera status
+curl http://localhost:4000/api/camera/status
+```
+
+Expected response:
+
+```json
+{
+  "connected": true,
+  "model": "Canon EOS 550D",
+  "battery": 85
+}
+```
+
+### Troubleshooting Camera
+
+If camera is not detected:
+
+1. **Check USB connection** - Ensure camera is connected and powered on
+2. **Set camera to PTP mode** - In camera settings, select PC Connection mode
+3. **Install Canon drivers** - Download from Canon website if needed
+4. **Try mock mode** - Set `MOCK_CAMERA=true` for testing without hardware
 
 ---
 
 ## Printer Setup
 
-### Ubuntu
-```bash
-sudo systemctl enable cups && sudo systemctl start cups
-sudo usermod -aG lpadmin $USER
-# Open http://localhost:631 → Administration → Add Printer
-lpstat -p -d          # Verify printer is listed
-echo "Test" | lp      # Test print
-```
-
-### Windows
-Use Windows Settings → Printers & Scanners → Add printer.
-The backend uses the system default printer.
-
----
-
-## Quick Test Checklist
-
-- [ ] `pnpm dev` starts without errors
-- [ ] Camera detected in logs (`EdsdkProvider: Camera model:`)
-- [ ] http://localhost:4000 loads the frontend
-- [ ] http://localhost:4000/admin/ loads admin panel
-- [ ] Can generate a booth code via admin
-- [ ] Live preview shows camera feed
-- [ ] Capture takes a photo instantly
-- [ ] Printer prints a test page
+1. Install printer drivers
+2. Configure in Windows Settings → Devices → Printers
+3. Test print from the application
 
 ---
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| `EDSDK: Device not found` | Try older DLL: set `EDSDK_LIB_PATH` to v3.5 path |
-| `Cannot find module 'koffi'` | Run `pnpm install` in `apps/backend` |
-| `sharp` install fails | Ubuntu: `sudo apt install libvips-dev` / Windows: install VC++ Build Tools |  
-| `better-sqlite3` fails | Install build tools: `build-essential` (Ubuntu) or VC++ Build Tools (Windows) |
-| Camera not detected (Ubuntu) | Kill gvfs: `sudo systemctl mask gvfs-gphoto2-volume-monitor` |
-| Port 4000 in use | `lsof -i :4000` (Ubuntu) or `netstat -ano \| findstr :4000` (Windows) |
+### Port Already in Use
+
+```powershell
+# Find process using port 4000
+Get-Process -Id (Get-NetTCPConnection -LocalPort 4000).OwningProcess
+
+# Kill the process
+Stop-Process -Id <PID>
+```
+
+### Database Locked
+
+```powershell
+# Stop all Node.js processes
+Get-Process node | Stop-Process
+
+# Restart the application
+```
+
+### Camera Connection Issues
+
+1. Check Device Manager for Canon camera
+2. Reinstall Canon drivers
+3. Try different USB port
+4. Restart camera
+
+---
+
+## Next Steps
+
+- Read [QUICK-START.md](./scripts/QUICK-START.md) for daily operations
+- Read [WINDOWS-SETUP-COMPLETE.md](./WINDOWS-SETUP-COMPLETE.md) for detailed setup
+- Read [SYSTEM-ARCHITECTURE.md](./scripts/SYSTEM-ARCHITECTURE.md) for technical details
+
+---
+
+## Support
+
+For technical support, contact your system administrator or development team.

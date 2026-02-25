@@ -22,7 +22,7 @@ Photonic is a production-ready photo booth system designed for commercial deploy
 ### Key Differentiators
 
 - **Code-Based Access**: Cashier-generated codes eliminate payment friction at entry
-- **Multi-Modal Camera**: Supports Canon DSLR (Windows/Linux), webcam, or mock mode for development
+- **Multi-Modal Camera**: Supports Canon DSLR (Windows), webcam, or mock mode for development
 - **Integrated Payment**: QRIS payment via Midtrans with real-time status updates
 - **Multi-Channel Delivery**: Print, WhatsApp (Fonnte/Wablas), and digital download
 - **Visual Template Designer**: Drag-and-drop frame creation with Konva.js
@@ -87,7 +87,7 @@ Photonic is a production-ready photo booth system designed for commercial deploy
 
 - **Node.js** 18+ LTS
 - **pnpm** 8+ (`npm install -g pnpm@8`)
-- **Windows 10/11** (production) or **Linux/macOS** (development)
+- **Windows 10/11** (production or development)
 - **Canon DSLR** (optional - mock mode available)
 
 ### One-Command Setup
@@ -185,7 +185,6 @@ photonic-v0.1/
 │   ├── QUICK-START.md        # Day-to-day operations
 │   ├── WINDOWS-SETUP-COMPLETE.md  # Windows installation
 │   ├── SYSTEM-ARCHITECTURE.md  # Technical deep-dive
-│   ├── setup-photobooth.sh   # Linux setup script
 │   └── setup-photobooth-windows.ps1  # Windows setup
 │
 ├── data/                       # Runtime data
@@ -203,12 +202,11 @@ photonic-v0.1/
 
 ### Getting Started
 
-| Document                                                       | Purpose                      | Audience              |
-| -------------------------------------------------------------- | ---------------------------- | --------------------- |
-| **[QUICK-START.md](./scripts/QUICK-START.md)**                 | Day-to-day operations        | Cashiers & Operators  |
-| **[WINDOWS-SETUP-COMPLETE.md](./WINDOWS-SETUP-COMPLETE.md)** | Windows production setup     | System Administrators |
-| **[SYSTEM-ARCHITECTURE.md](./scripts/SYSTEM-ARCHITECTURE.md)** | Technical architecture       | Developers            |
-
+| Document                                                       | Purpose                  | Audience              |
+| -------------------------------------------------------------- | ------------------------ | --------------------- |
+| **[QUICK-START.md](./scripts/QUICK-START.md)**                 | Day-to-day operations    | Cashiers & Operators  |
+| **[WINDOWS-SETUP-COMPLETE.md](./WINDOWS-SETUP-COMPLETE.md)**   | Windows production setup | System Administrators |
+| **[SYSTEM-ARCHITECTURE.md](./scripts/SYSTEM-ARCHITECTURE.md)** | Technical architecture   | Developers            |
 
 ### Quick Navigation
 
@@ -439,23 +437,23 @@ pnpm db:studio
 
 ### Backend Won't Start
 
-```bash
-# Check if port is in use
-lsof -i :4000
+```powershell
+# Check if port is in use (PowerShell)
+Get-Process -Id (Get-NetTCPConnection -LocalPort 4000).OwningProcess
 
 # View error logs
 cat apps/backend/logs/error.log
 
 # Reset database (WARNING: data loss)
-rm apps/backend/data/photobooth.db
+Remove-Item apps/backend/data/photobooth.db
 pnpm --filter @photonic/backend db:migrate
 ```
 
 ### Camera Not Detected
 
-```bash
+```powershell
 # Test camera status
-curl http://localhost:4000/api/camera/status
+Invoke-RestMethod http://localhost:4000/api/camera/status
 
 # Enable mock mode for development
 # Edit apps/backend/.env: MOCK_CAMERA=true
@@ -463,10 +461,9 @@ curl http://localhost:4000/api/camera/status
 
 ### Cannot Access from Network
 
-```bash
+```powershell
 # Find your IP
-ipconfig  # Windows
-ifconfig  # Linux/Mac
+ipconfig
 
 # Check firewall rules
 # Windows: Add inbound rules for ports 4000, 4001
@@ -519,8 +516,7 @@ sc query PhotonicPhotobooth
 | **Backend**          | Fastify              | HTTP API server             |
 | **Database**         | SQLite + Drizzle ORM | Data persistence            |
 | **Image Processing** | Sharp                | Photo editing & compositing |
-| **Camera (Windows)** | digiCamControl       | Canon DSLR control          |
-| **Camera (Linux)**   | gphoto2              | Canon DSLR control          |
+| **Camera (Windows)** | Canon EDSDK          | Canon DSLR control          |
 | **Payment**          | Midtrans SDK         | QRIS payments               |
 | **WhatsApp**         | Fonnte/Wablas API    | Photo delivery              |
 | **Frontend**         | Electron + React     | Kiosk application           |

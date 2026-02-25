@@ -1,3 +1,46 @@
+/**
+ * Backend Index - Server Entry Point
+ *
+ * ROUTES MANIFEST:
+ * =================
+ * Public API:
+ *   GET    /health                          - Service health check
+ *
+ * Camera API:
+ *   GET    /api/camera/health               - Camera health status
+ *   GET    /api/camera/status               - Get camera status
+ *   GET    /api/camera/preview              - Live view MJPEG stream
+ *   POST   /api/camera/capture              - Trigger photo capture
+ *
+ * Admin API:
+ *   POST   /api/admin/self-test             - Run comprehensive self-test
+ *   GET    /api/admin/cameras               - List all cameras
+ *   POST   /api/admin/cameras/select        - Select active camera
+ *   POST   /api/admin/cameras/standby       - Set standby camera
+ *   GET    /api/admin/sessions              - List all sessions
+ *   GET    /api/admin/photos                - List all photos
+ *   GET    /api/admin/stats                 - Get booth statistics
+ *
+ * Session API:
+ *   POST   /api/sessions                    - Create new session
+ *   GET    /api/sessions/:sessionId         - Get session details
+ *   PATCH  /api/sessions/:sessionId         - Update session
+ *   DELETE /api/sessions/:sessionId         - Delete session
+ *
+ * Photo API:
+ *   POST   /api/photos/capture              - Capture photo (rate limited: 1 per 3s)
+ *   POST   /api/photos/upload               - Upload browser-captured photo
+ *   POST   /api/photos/:photoId/process     - Process photo
+ *   POST   /api/photos/:photoId/preview-filter - Filter preview
+ *   POST   /api/photos/composite-a3         - Create A3 composite
+ *   GET    /api/photos/session/:sessionId   - Get session photos
+ *   GET    /api/photos/:photoId             - Get photo details
+ *   POST   /api/photos/collage              - Create collage
+ *
+ * WebSocket:
+ *   WS     /ws/camera                       - Real-time camera events
+ */
+
 import { createApp } from "./app";
 import { initDatabase, closeDatabase } from "./db";
 import { env, validateEnv } from "./config/env";
@@ -5,6 +48,12 @@ import { createLogger } from "@photonic/utils";
 import { getSyncService } from "./services/sync-service";
 import { getCameraService } from "./services/camera-service";
 import { printService } from "./services/print-service";
+import {
+  initializeCameraWebSocket,
+  closeCameraWebSocket,
+} from "./services/camera-websocket";
+import { getCameraManager } from "./camera/camera-manager";
+import { getSessionPersistenceService } from "./services/session-persistence";
 import fs from "fs";
 import path from "path";
 import type { FastifyInstance } from "fastify";
@@ -81,7 +130,32 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     logger.info(`Environment: ${env.nodeEnv}`);
     logger.info(`Database: ${env.databasePath} (optional)`);
 
-    // Initialize camera service
+    // Initialize CameraManager for multi-camera support
+    const cameraManager = getCameraManager();
+    try {
+      await cameraManager.initialize();
+      logger.info("CameraManager initialized with multi-camera support");
+
+      // Log discovered cameras
+      const cameras = cameraManager.getCameras();
+      if (cameras.length > 0) {
+        logger.info(
+          `Discovered ${cameras.length} camera(s):`,
+          cameras.map((c) => ({
+            id: c.id,
+            model: c.model,
+            active: c.isActive,
+          })),
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        "CameraManager initialization failed, will retry on first capture",
+        error,
+      );
+    }
+
+    // Initialize camera service (legacy compatibility)
     const cameraService = getCameraService();
     try {
       await cameraService.initialize();
@@ -90,6 +164,29 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       logger.warn(
         "Camera service initialization failed, will retry on first capture",
       );
+    }
+
+    // Initialize WebSocket server for camera events
+    try {
+      initializeCameraWebSocket(app);
+      logger.info("Camera WebSocket server initialized on /ws/camera");
+    } catch (wsError) {
+      logger.warn("Failed to initialize WebSocket server:", wsError);
+    }
+
+    // Initialize session persistence service
+    const persistenceService = getSessionPersistenceService();
+    try {
+      persistenceService.initialize();
+      logger.info("Session persistence service initialized");
+
+      // Attempt to recover any crashed sessions
+      const recovered = await persistenceService.recoverCrashedSessions();
+      if (recovered > 0) {
+        logger.info(`Recovered ${recovered} crashed session(s)`);
+      }
+    } catch (error) {
+      logger.warn("Session persistence initialization failed:", error);
     }
 
     // Start sync service (for central analytics)
@@ -102,6 +199,41 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     // Start print service
     await printService.start();
     logger.info("Print service started");
+
+    // Subscribe camera events to WebSocket
+    try {
+      const wsServer = initializeCameraWebSocket(app);
+      const cameraService = getCameraService();
+
+      // Subscribe to camera events and forward to WebSocket
+      cameraManager.on("camera:connected", (data) => {
+        wsServer.emitConnected(data.model || "Unknown", data.battery || 100);
+      });
+
+      cameraManager.on("camera:disconnected", (data) => {
+        wsServer.emitDisconnected(data.reason);
+      });
+
+      cameraManager.on("camera:ready", (data) => {
+        wsServer.emitReady(data);
+      });
+
+      cameraManager.on("camera:busy", (data) => {
+        wsServer.emitBusy(data.operation);
+      });
+
+      logger.info("Camera events subscribed to WebSocket");
+    } catch (error) {
+      logger.warn("Failed to subscribe camera events to WebSocket:", error);
+    }
+
+    logger.info("=== Photonic Backend Server Started Successfully ===");
+    logger.info("Available endpoints:");
+    logger.info("  - GET  /health");
+    logger.info("  - GET  /api/camera/health");
+    logger.info("  - POST /api/admin/self-test");
+    logger.info("  - GET  /api/admin/cameras");
+    logger.info("  - WS   /ws/camera");
   } catch (error) {
     logger.error("Failed to start server:", error);
     throw error;
@@ -131,6 +263,20 @@ export async function stopServer(): Promise<void> {
     await cameraService.disconnect();
     logger.info("Camera service disconnected");
 
+    // Close CameraManager
+    const cameraManager = getCameraManager();
+    await cameraManager.disconnect();
+    logger.info("CameraManager disconnected");
+
+    // Close WebSocket server
+    closeCameraWebSocket();
+    logger.info("WebSocket server closed");
+
+    // Close session persistence
+    const persistenceService = getSessionPersistenceService();
+    persistenceService.close();
+    logger.info("Session persistence closed");
+
     // Close Fastify app
     await app.close();
     logger.info("Fastify app closed");
@@ -157,6 +303,7 @@ export async function stopServer(): Promise<void> {
 export { getCameraService } from "./services/camera-service";
 export { getSyncService } from "./services/sync-service";
 export { printService } from "./services/print-service";
+export { getCameraManager } from "./camera/camera-manager";
 
 // CLI mode (when run directly)
 if (require.main === module) {

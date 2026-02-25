@@ -3,6 +3,33 @@
  */
 
 // ============================================================================
+// Paths Configuration
+// ============================================================================
+
+/**
+ * File system paths for photos, templates, and processed images
+ * All paths are relative to the application root
+ * Override via environment variables:
+ *   TEMP_PHOTO_PATH, PROCESSED_PATH, TEMPLATES_PATH, THUMBNAILS_PATH
+ */
+export const PATHS = {
+  /** Temporary photos during capture */
+  TEMP_PHOTOS: process.env.TEMP_PHOTO_PATH ?? "./data/photos",
+  /** Processed photos with templates/filters applied */
+  PROCESSED: process.env.PROCESSED_PATH ?? "./data/processed",
+  /** Template files */
+  TEMPLATES: process.env.TEMPLATES_PATH ?? "./data/templates",
+  /** Thumbnail images */
+  THUMBNAILS: process.env.THUMBNAILS_PATH ?? "./data/thumbnails",
+  /** Database file */
+  DATABASE: process.env.DATABASE_PATH ?? "./data/photobooth.db",
+  /** Log files */
+  LOGS: "./logs",
+  /** Data directory root */
+  DATA: "./data",
+} as const;
+
+// ============================================================================
 // Service Ports
 // ============================================================================
 
@@ -140,12 +167,20 @@ export const ENV_KEYS = {
   DATABASE_PATH: "DATABASE_PATH",
   BRIDGE_SERVICE_URL: "BRIDGE_SERVICE_URL",
 
-  // Bridge
-  BRIDGE_PORT: "PORT",
+  // Camera
+  CAMERA_PROVIDER: "CAMERA_PROVIDER",
+  CAPTURE_TIMEOUT_MS: "CAPTURE_TIMEOUT_MS",
+  CAPTURE_QUEUE_MODE: "CAPTURE_QUEUE_MODE",
+  LIVEVIEW_FPS: "LIVEVIEW_FPS",
+  LIVEVIEW_TRANSPORT: "LIVEVIEW_TRANSPORT",
+  EDSDK_LIB_PATH: "EDSDK_LIB_PATH",
+  MOCK_FAILURE_MODE: "MOCK_FAILURE_MODE",
+
+  // Paths
   TEMP_PHOTO_PATH: "TEMP_PHOTO_PATH",
-  CAMERA_TIMEOUT: "CAMERA_TIMEOUT",
-  MOCK_CAMERA: "MOCK_CAMERA",
-  USE_WEBCAM: "USE_WEBCAM",
+  PROCESSED_PATH: "PROCESSED_PATH",
+  TEMPLATES_PATH: "TEMPLATES_PATH",
+  THUMBNAILS_PATH: "THUMBNAILS_PATH",
 
   // Frontend
   VITE_API_URL: "VITE_API_URL",
@@ -181,6 +216,7 @@ export const HTTP_STATUS = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   UNPROCESSABLE_ENTITY: 422,
+  TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
   SERVICE_UNAVAILABLE: 503,
 } as const;

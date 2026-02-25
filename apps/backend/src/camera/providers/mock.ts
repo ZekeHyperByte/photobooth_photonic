@@ -1,6 +1,7 @@
 /**
  * Mock Camera Provider
  * Simulates camera behavior for development and testing
+ * Supports failure simulation modes via MOCK_FAILURE_MODE env var
  */
 
 import { nanoid } from "nanoid";
@@ -11,33 +12,74 @@ import {
   CaptureResult,
   ExtendedCameraStatusResponse,
 } from "../types";
-import { CameraError, CameraNotInitializedError } from "../errors";
+import {
+  CameraError,
+  CameraErrorContext,
+  CameraNotInitializedError,
+  CameraNotReadyError,
+  CaptureTimeoutError,
+  CardFullError,
+  CamerasBusyError,
+} from "../errors";
 import { cameraLogger } from "../logger";
 import { env } from "../../config/env";
+
+export type FailureMode =
+  | "none"
+  | "disconnect"
+  | "timeout"
+  | "card_full"
+  | "flaky"
+  | "no_af";
 
 export class MockProvider implements CameraProvider {
   private connected = false;
   private initialized = false;
   private liveViewActive = false;
   private captureCount = 0;
+  private failureMode: FailureMode;
+  private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private initTime: number = 0;
+
+  constructor() {
+    this.failureMode = (env.mockFailureMode || "none") as FailureMode;
+    cameraLogger.info(
+      `MockProvider: Initialized with failure mode: ${this.failureMode}`,
+    );
+  }
 
   async initialize(): Promise<void> {
-    cameraLogger.info("MockProvider: Initializing mock camera");
+    cameraLogger.info("MockProvider: Initializing mock camera", {
+      failureMode: this.failureMode,
+    });
 
     // Simulate initialization delay
     await this.delay(500);
 
+    // Check for failure simulation
+    if (this.failureMode === "disconnect") {
+      // Schedule disconnect after 30 seconds
+      this.scheduleDisconnect();
+    }
+
     this.initialized = true;
     this.connected = true;
+    this.initTime = Date.now();
 
     cameraLogger.info("MockProvider: Mock camera initialized", {
       model: "Canon EOS Mock 550D",
       mode: "mock",
+      failureMode: this.failureMode,
     });
   }
 
   async disconnect(): Promise<void> {
     cameraLogger.info("MockProvider: Disconnecting mock camera");
+
+    if (this.disconnectTimer) {
+      clearTimeout(this.disconnectTimer);
+      this.disconnectTimer = null;
+    }
 
     if (this.liveViewActive) {
       await this.stopLiveView();
@@ -50,6 +92,15 @@ export class MockProvider implements CameraProvider {
   }
 
   isConnected(): boolean {
+    // Simulate disconnect failure mode
+    if (this.failureMode === "disconnect" && this.connected) {
+      const elapsed = Date.now() - this.initTime;
+      if (elapsed > 30000) {
+        // Disconnect after 30 seconds
+        this.connected = false;
+        cameraLogger.warn("MockProvider: Simulated disconnect after 30s");
+      }
+    }
     return this.connected;
   }
 
@@ -58,13 +109,25 @@ export class MockProvider implements CameraProvider {
     sequenceNumber: number,
   ): Promise<CaptureResult> {
     if (!this.isConnected()) {
-      throw new CameraNotInitializedError("capturePhoto");
+      throw new CameraNotInitializedError("capturePhoto", sessionId);
+    }
+
+    // Check for AF failure before shutter fires
+    if (this.failureMode === "no_af") {
+      throw new CameraNotReadyError("Auto-focus failed to acquire lock", {
+        operation: "capture",
+        sessionId,
+      });
     }
 
     cameraLogger.info("MockProvider: Capturing photo", {
       sessionId,
       sequenceNumber,
+      failureMode: this.failureMode,
     });
+
+    // Simulate failure modes
+    await this.simulateFailures("capture");
 
     // Simulate capture delay
     await this.delay(1000);
@@ -169,10 +232,17 @@ export class MockProvider implements CameraProvider {
   }
 
   async getStatus(): Promise<ExtendedCameraStatusResponse> {
+    // Simulate battery drain in disconnect mode
+    let battery = 100;
+    if (this.failureMode === "disconnect" && this.connected) {
+      const elapsed = Date.now() - this.initTime;
+      battery = Math.max(0, 100 - Math.floor(elapsed / 1000));
+    }
+
     return {
-      connected: this.connected,
+      connected: this.isConnected(),
       model: "Canon EOS Mock 550D",
-      battery: 100,
+      battery,
       storageAvailable: true,
       settings: {
         iso: "400",
@@ -188,6 +258,7 @@ export class MockProvider implements CameraProvider {
         bodyID: "MOCK550D001",
         firmwareVersion: "1.0.9",
         saveTo: "host",
+        failureMode: this.failureMode,
       },
     };
   }
@@ -198,7 +269,50 @@ export class MockProvider implements CameraProvider {
 
   async triggerFocus(): Promise<void> {
     cameraLogger.debug("MockProvider: Trigger focus");
+
+    // Simulate AF failure
+    if (this.failureMode === "no_af") {
+      throw new CameraError("AF failed", {
+        operation: "triggerFocus",
+      } as CameraErrorContext);
+    }
+
     await this.delay(200);
+  }
+
+  /**
+   * Simulate failure modes
+   */
+  private async simulateFailures(operation: string): Promise<void> {
+    switch (this.failureMode) {
+      case "timeout":
+        throw new CaptureTimeoutError(30000, { operation });
+
+      case "card_full":
+        throw new CardFullError({ operation });
+
+      case "flaky":
+        // 30% random failure
+        if (Math.random() < 0.3) {
+          throw new CamerasBusyError({ operation });
+        }
+        break;
+
+      default:
+        // No failure
+        break;
+    }
+  }
+
+  /**
+   * Schedule disconnect after 30 seconds
+   */
+  private scheduleDisconnect(): void {
+    cameraLogger.info("MockProvider: Scheduling disconnect in 30 seconds");
+    this.disconnectTimer = setTimeout(() => {
+      cameraLogger.warn("MockProvider: Simulating disconnect");
+      this.connected = false;
+    }, 30000);
   }
 
   private delay(ms: number): Promise<void> {

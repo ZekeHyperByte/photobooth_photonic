@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import rateLimit from "@fastify/rate-limit";
 import { createLogger } from "@photonic/utils";
 import { env } from "./config/env";
 import { packageRoutes } from "./routes/packages";
@@ -16,17 +17,107 @@ import { adminRoutes } from "./routes/admin";
 import { codeRoutes } from "./routes/codes";
 import { filterRoutes } from "./routes/filters";
 import { cameraRoutes } from "./routes/camera";
+import { cameraHealthRoutes } from "./routes/camera-health";
+import { selfTestRoutes } from "./routes/self-test";
+import { adminCameraRoutes } from "./routes/admin-cameras";
 import { syncRoutes } from "./routes/sync";
 import path from "path";
 import fs from "fs";
 
 const logger = createLogger("app");
 
+/**
+ * Create and configure the Fastify application
+ *
+ * ROUTES MANIFEST:
+ * =================
+ * API Routes:
+ *   GET    /health                          - Service health check
+ *
+ *   GET    /api/camera/health               - Camera health status (watchdog, battery, SD card)
+ *   POST   /api/admin/self-test             - Run comprehensive system self-test
+ *
+ * Admin Camera Routes:
+ *   GET    /api/admin/cameras               - List all discovered cameras
+ *   POST   /api/admin/cameras/select        - Select active camera
+ *   POST   /api/admin/cameras/standby       - Set standby camera for failover
+ *
+ * Photo Routes (with rate limiting on capture):
+ *   POST   /api/photos/capture              - Capture photo from camera (rate limited: 1 per 3s per session)
+ *   POST   /api/photos/upload               - Upload browser-captured photo
+ *   POST   /api/photos/:photoId/process     - Process photo with template/filter
+ *   POST   /api/photos/:photoId/preview-filter - Generate filter preview
+ *   POST   /api/photos/composite-a3         - Create A3 composite
+ *   GET    /api/photos/session/:sessionId   - Get all photos for a session
+ *   GET    /api/photos/:photoId             - Get single photo details
+ *   POST   /api/photos/collage              - Create photo collage
+ *
+ * Session Routes:
+ *   POST   /api/sessions                    - Create new session
+ *   GET    /api/sessions/:sessionId         - Get session details
+ *   PATCH  /api/sessions/:sessionId         - Update session
+ *   DELETE /api/sessions/:sessionId         - Delete session
+ *
+ * Package Routes:
+ *   GET    /api/packages                    - List available packages
+ *
+ * Payment Routes:
+ *   POST   /api/payments/create             - Create payment
+ *   POST   /api/payments/verify             - Verify payment status
+ *
+ * Template Routes:
+ *   GET    /api/templates                   - List templates
+ *   GET    /api/templates/:id               - Get template details
+ *
+ * Filter Routes:
+ *   GET    /api/filters                     - List filters
+ *   POST   /api/filters/:id/preview         - Preview filter on photo
+ *
+ * Camera Routes:
+ *   GET    /api/camera/status               - Get camera status
+ *   GET    /api/camera/preview              - Get live view MJPEG stream
+ *   POST   /api/camera/capture              - Trigger photo capture
+ *
+ * Admin Routes:
+ *   GET    /api/admin/sessions              - List all sessions
+ *   GET    /api/admin/photos                - List all photos
+ *   GET    /api/admin/stats                 - Get booth statistics
+ *
+ * Delivery Routes:
+ *   POST   /api/delivery/email              - Send photos via email
+ *   POST   /api/delivery/qr                 - Generate QR code for download
+ *
+ * WebSocket:
+ *   WS     /ws/camera                       - Real-time camera events
+ *
+ * Static Routes:
+ *   /data/*                                 - Served photos and templates
+ *   /admin/*                                - Admin web panel (if built)
+ *   /frame-designer/*                       - Frame designer (if built)
+ *   /                                       - Frontend SPA (if built)
+ */
 export async function createApp() {
   const app = Fastify({
     logger: false, // We use Winston instead
     trustProxy: true,
     bodyLimit: 50 * 1024 * 1024, // 50MB for photo uploads
+  });
+
+  // Register rate limit plugin (for capture endpoint)
+  await app.register(rateLimit, {
+    max: 100, // Default max per window
+    timeWindow: "1 minute",
+    errorResponseBuilder: (
+      req: any,
+      context: { after: string | number; max: number; ttl: number },
+    ) => {
+      return {
+        success: false,
+        error: "Too Many Requests",
+        message: `Rate limit exceeded. Try again in ${context.after}`,
+        retryAfter: context.after,
+      };
+    },
   });
 
   // Register plugins
@@ -103,6 +194,9 @@ export async function createApp() {
   await app.register(deliveryRoutes);
   await app.register(adminRoutes);
   await app.register(cameraRoutes);
+  await app.register(cameraHealthRoutes);
+  await app.register(selfTestRoutes);
+  await app.register(adminCameraRoutes);
   await app.register(syncRoutes);
 
   // Health check endpoint
@@ -127,6 +221,15 @@ export async function createApp() {
       name: "Photonic V0.1 API",
       version: "0.1.0",
       status: "running",
+      routes: [
+        "GET    /health",
+        "GET    /api/camera/health",
+        "POST   /api/admin/self-test",
+        "GET    /api/admin/cameras",
+        "POST   /api/admin/cameras/select",
+        "POST   /api/admin/cameras/standby",
+        "WS     /ws/camera",
+      ],
       hint: "Build frontend with: cd apps/frontend && pnpm build",
     };
   });
@@ -153,7 +256,8 @@ export async function createApp() {
     if (
       request.url.startsWith("/api/") ||
       request.url.startsWith("/data/") ||
-      request.url.startsWith("/health")
+      request.url.startsWith("/health") ||
+      request.url.startsWith("/ws/")
     ) {
       reply.status(404).send({
         error: "Not Found",

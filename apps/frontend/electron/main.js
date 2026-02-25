@@ -5,7 +5,7 @@
  * as a single integrated application.
  */
 
-import { app, BrowserWindow, ipcMain, screen } from "electron";
+import { app, BrowserWindow, ipcMain, screen, BrowserView } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -19,9 +19,14 @@ const { startServer, stopServer } = require("@photonic/backend");
 
 let mainWindow = null;
 let backendStarted = false;
+let liveViewInterval = null;
+let isElectronContext = true;
 
 // Development mode detection
 const isDev = process.env.NODE_ENV === "development";
+
+// Live view transport mode
+const liveViewTransport = process.env.LIVEVIEW_TRANSPORT || "ipc";
 
 async function startBackend() {
   try {
@@ -87,6 +92,7 @@ function createWindow() {
   // Handle window closed
   mainWindow.on("closed", () => {
     mainWindow = null;
+    stopLiveViewStream();
   });
 
   // Prevent external navigation
@@ -100,6 +106,67 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => {
     return { action: "deny" };
   });
+}
+
+// Live view stream management
+async function startLiveViewStream() {
+  if (liveViewInterval) {
+    return;
+  }
+
+  console.log("[Main] Starting live view stream via IPC");
+
+  try {
+    const { getCameraService } = require("@photonic/backend");
+    const cameraService = getCameraService();
+
+    if (!cameraService.isConnected()) {
+      await cameraService.initialize();
+    }
+
+    await cameraService.startLiveViewIPC();
+
+    // Send frames at target FPS
+    const targetFps = parseInt(process.env.LIVEVIEW_FPS || "24", 10);
+    const frameInterval = 1000 / targetFps;
+
+    liveViewInterval = setInterval(async () => {
+      try {
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          stopLiveViewStream();
+          return;
+        }
+
+        const frame = await cameraService.getLiveViewFrame();
+        if (frame && frame.length > 0) {
+          // Convert to base64 for IPC transmission
+          const base64Frame = frame.toString("base64");
+          mainWindow.webContents.send("camera:liveview:frame", base64Frame);
+        }
+      } catch (error) {
+        console.error("[Main] Live view frame error:", error);
+      }
+    }, frameInterval);
+  } catch (error) {
+    console.error("[Main] Failed to start live view stream:", error);
+  }
+}
+
+function stopLiveViewStream() {
+  if (liveViewInterval) {
+    clearInterval(liveViewInterval);
+    liveViewInterval = null;
+    console.log("[Main] Live view stream stopped");
+
+    // Stop camera live view
+    try {
+      const { getCameraService } = require("@photonic/backend");
+      const cameraService = getCameraService();
+      cameraService.stopLiveViewIPC();
+    } catch (error) {
+      console.error("[Main] Error stopping camera live view:", error);
+    }
+  }
 }
 
 // App event handlers
@@ -123,6 +190,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", async () => {
+  stopLiveViewStream();
   await stopBackend();
   if (process.platform !== "darwin") {
     app.quit();
@@ -131,6 +199,7 @@ app.on("window-all-closed", async () => {
 
 app.on("before-quit", async (event) => {
   event.preventDefault();
+  stopLiveViewStream();
   await stopBackend();
   app.exit(0);
 });
@@ -158,6 +227,24 @@ ipcMain.handle("camera:getStatus", async () => {
   }
 });
 
+// Live view IPC handlers
+ipcMain.handle("camera:liveview:start", async () => {
+  if (liveViewTransport === "ipc") {
+    await startLiveViewStream();
+    return { success: true, transport: "ipc" };
+  }
+  return { success: true, transport: "http" };
+});
+
+ipcMain.handle("camera:liveview:stop", async () => {
+  stopLiveViewStream();
+  return { success: true };
+});
+
+ipcMain.handle("camera:liveview:getTransport", async () => {
+  return { transport: liveViewTransport, isElectron: isElectronContext };
+});
+
 ipcMain.handle("app:quit", () => {
   app.quit();
 });
@@ -170,3 +257,4 @@ app.on("web-contents-created", (event, contents) => {
 });
 
 console.log("[Main] Electron main process initialized");
+console.log(`[Main] Live view transport: ${liveViewTransport}`);

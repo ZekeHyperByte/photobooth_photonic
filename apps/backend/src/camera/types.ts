@@ -24,6 +24,38 @@ export interface CaptureResult {
 export interface ExtendedCameraStatusResponse extends CameraStatusResponse {
   /** Provider-specific metadata (varies by camera implementation) */
   providerMetadata?: Record<string, any>;
+  /** Serial number */
+  serialNumber?: string | null;
+  /** SD Card information */
+  sdCard?: {
+    present: boolean;
+    writeable: boolean;
+    freeSpaceMB: number | null;
+  };
+  /** Live view information */
+  liveView?: {
+    active: boolean;
+    fps: number;
+    droppedFrames: number;
+  };
+  /** Capture information */
+  capture?: {
+    locked: boolean;
+    captureCount: number;
+    lastCaptureAt: string | null;
+    lastError: string | null;
+  };
+  /** Watchdog information */
+  watchdog?: {
+    status: "healthy" | "reconnecting" | "failed";
+    reconnectAttempts: number;
+    lastReconnectAt: string | null;
+  };
+  /** SDK information */
+  sdk?: {
+    version: string;
+    dllPath: string;
+  };
 }
 
 /**
@@ -87,6 +119,11 @@ export interface CameraProvider {
     sequenceNumber: number,
   ): Promise<CaptureResult>;
 
+  /**
+   * Cancel a pending capture operation
+   */
+  cancelCapture?(): Promise<void>;
+
   // Live View
 
   /**
@@ -103,6 +140,11 @@ export interface CameraProvider {
    * Get a single live view frame
    */
   getLiveViewFrame(): Promise<Buffer>;
+
+  /**
+   * Check if live view is active
+   */
+  isLiveViewActive?(): boolean;
 
   // Settings
 
@@ -137,9 +179,55 @@ export interface CameraProvider {
    * Trigger auto-focus
    */
   triggerFocus(): Promise<void>;
+
+  /**
+   * Get capture mutex status
+   */
+  getCaptureLockStatus?(): { locked: boolean; mode: string };
+
+  /**
+   * Set capture mutex mode
+   */
+  setCaptureMode?(mode: "queue" | "reject"): void;
 }
 
 /**
  * Camera provider factory function type
  */
 export type CameraProviderFactory = () => CameraProvider;
+
+/**
+ * SDK Version Configuration
+ */
+export interface SdkVersionConfig {
+  version: string;
+  dllPath: string;
+  compatibleModels: string[]; // regex patterns
+}
+
+/**
+ * Camera discovery information
+ */
+export interface CameraInfo {
+  id: string;
+  model: string;
+  port: string;
+  serialNumber?: string;
+  isActive: boolean;
+  isStandby: boolean;
+}
+
+/**
+ * Camera event types
+ */
+export type CameraEvent =
+  | "camera:connected"
+  | "camera:disconnected"
+  | "camera:ready"
+  | "camera:busy"
+  | "camera:error"
+  | "battery:low"
+  | "capture:complete"
+  | "capture:error"
+  | "reconnect_attempt"
+  | "reconnect_failed";

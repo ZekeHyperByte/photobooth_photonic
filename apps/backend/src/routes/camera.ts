@@ -87,7 +87,7 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           await cameraService.initialize();
         }
 
-        // Stop preview stream before capture (gphoto2 is single-threaded over USB)
+        // Stop preview stream before capture
         // stopAll() awaits the loop exit which includes exiting LiveView
         const previewManager = getPreviewStreamManager();
         if (previewManager.clientCount > 0) {
@@ -203,12 +203,12 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           data: {
             cameras: status.connected
               ? [
-                {
-                  model: status.model,
-                  port: "usb",
-                  abilities: ["capture", "preview"],
-                },
-              ]
+                  {
+                    model: status.model,
+                    port: "usb",
+                    abilities: ["capture", "preview"],
+                  },
+                ]
               : [],
           },
         });
@@ -232,9 +232,9 @@ export async function cameraRoutes(fastify: FastifyInstance) {
     "/api/camera/mode",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        // Derive mode from provider type — edsdk and gphoto2 are DSLR modes
+        // Derive mode from provider type — edsdk is DSLR mode
         const providerType = process.env.CAMERA_PROVIDER || "mock";
-        const mode = (providerType === "edsdk" || providerType === "gphoto2") ? "dslr" : "webcam";
+        const mode = providerType === "edsdk" ? "dslr" : "webcam";
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,

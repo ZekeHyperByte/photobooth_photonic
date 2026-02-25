@@ -27,9 +27,33 @@ export async function photoRoutes(fastify: FastifyInstance) {
   /**
    * POST /api/photos/capture
    * Capture photo from camera via bridge service
+   * Rate limited: 1 request per 3 seconds per sessionId
    */
   fastify.post(
     `${ENDPOINTS.PHOTOS}/capture`,
+    {
+      config: {
+        rateLimit: {
+          max: 1,
+          timeWindow: 3000, // 3 seconds
+          keyGenerator: (request: FastifyRequest) => {
+            const body = request.body as { sessionId?: string };
+            return `capture:${body?.sessionId || request.ip || "anonymous"}`;
+          },
+          errorResponseBuilder: (
+            req: FastifyRequest,
+            context: { after: string },
+          ) => {
+            return {
+              success: false,
+              error: "Too Many Requests",
+              message: `Rate limit exceeded. Try again in ${context.after}`,
+              retryAfter: context.after,
+            };
+          },
+        },
+      },
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const body = request.body as CapturePhotoRequest & {

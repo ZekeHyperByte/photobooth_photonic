@@ -196,32 +196,40 @@ export const EDS_ERR_INVALID_STERAGE_ID = 0x00002008;
 export const EDS_ERR_DEVICE_PROP_NOT_SUPPORTED = 0x0000200a;
 export const EDS_ERR_INVALID_OBJECTFORMATCODE = 0x0000200b;
 
+// Communication errors
+export const EDS_ERR_COMM_USB_BUS_ERR = 0x80008102; // USB communication error - often transient during live view
+
 // ============================================================================
 // Helper: error code to string
 // ============================================================================
 
 const ERROR_MAP: Record<number, string> = {
-    [EDS_ERR_OK]: "OK",
-    [EDS_ERR_DEVICE_NOT_FOUND]: "Device not found",
-    [EDS_ERR_DEVICE_BUSY]: "Device busy",
-    [EDS_ERR_DEVICE_INVALID]: "Device invalid",
-    [EDS_ERR_DEVICE_MEMORY_FULL]: "Device memory full",
-    [EDS_ERR_DEVICE_INTERNAL_ERROR]: "Device internal error",
-    [EDS_ERR_SESSION_NOT_OPEN]: "Session not open",
-    [EDS_ERR_TAKE_PICTURE_AF_NG]: "AF failed",
-    [EDS_ERR_TAKE_PICTURE_NO_CARD_NG]: "No card",
-    [EDS_ERR_TAKE_PICTURE_CARD_NG]: "Card error",
-    [EDS_ERR_TAKE_PICTURE_CARD_PROTECT_NG]: "Card write-protected",
-    [EDS_ERR_NOT_SUPPORTED]: "Not supported",
-    [EDS_ERR_INTERNAL_ERROR]: "Internal error",
+  [EDS_ERR_OK]: "OK",
+  [EDS_ERR_DEVICE_NOT_FOUND]: "Device not found",
+  [EDS_ERR_DEVICE_BUSY]: "Device busy",
+  [EDS_ERR_DEVICE_INVALID]: "Device invalid",
+  [EDS_ERR_DEVICE_MEMORY_FULL]: "Device memory full",
+  [EDS_ERR_DEVICE_INTERNAL_ERROR]: "Device internal error",
+  [EDS_ERR_SESSION_NOT_OPEN]: "Session not open",
+  [EDS_ERR_TAKE_PICTURE_AF_NG]: "AF failed",
+  [EDS_ERR_TAKE_PICTURE_NO_CARD_NG]: "No card",
+  [EDS_ERR_TAKE_PICTURE_CARD_NG]: "Card error",
+  [EDS_ERR_TAKE_PICTURE_CARD_PROTECT_NG]: "Card write-protected",
+  [EDS_ERR_NOT_SUPPORTED]: "Not supported",
+  [EDS_ERR_INTERNAL_ERROR]: "Internal error",
+  [EDS_ERR_COMM_USB_BUS_ERR]: "USB communication error",
 };
 
 export function edsErrorToString(err: number): string {
-    return ERROR_MAP[err] || `Unknown error: 0x${err.toString(16).padStart(8, "0")}`;
+  return (
+    ERROR_MAP[err] || `Unknown error: 0x${err.toString(16).padStart(8, "0")}`
+  );
 }
 
 export function checkError(err: number, context: string): void {
-    if (err !== EDS_ERR_OK) {
-        throw new Error(`EDSDK ${context}: ${edsErrorToString(err)} (0x${err.toString(16)})`);
-    }
+  if (err !== EDS_ERR_OK) {
+    throw new Error(
+      `EDSDK ${context}: ${edsErrorToString(err)} (0x${err.toString(16)})`,
+    );
+  }
 }
