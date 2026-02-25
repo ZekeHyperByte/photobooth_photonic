@@ -145,7 +145,16 @@ export class CameraManager extends EventEmitter {
         await edsdkProvider.disconnect();
       }
     } catch (error) {
-      cameraLogger.debug("CameraManager: No EDSDK cameras found", { error });
+      const errorDetails = error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      } : { error: String(error) };
+      
+      cameraLogger.error("CameraManager: Failed to initialize EDSDK camera", {
+        ...errorDetails,
+        hint: "Check that EDSDK.dll dependencies are installed (Visual C++ Redistributables)"
+      });
     }
 
     // Add mock camera for testing

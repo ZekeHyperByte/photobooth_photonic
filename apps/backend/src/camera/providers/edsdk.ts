@@ -109,15 +109,20 @@ export class EdsdkProvider implements CameraProvider {
   async initialize(): Promise<void> {
     cameraLogger.info("EdsdkProvider: Initializing EDSDK camera provider");
     try {
+      cameraLogger.info("EdsdkProvider: Loading EDSDK library...");
       this.sdk = loadEdsdkLibrary();
       const sdkInfo = getLoadedSdkInfo();
       this.state.sdkVersion = sdkInfo.version;
       this.state.dllPath = sdkInfo.dllPath;
+      cameraLogger.info(`EdsdkProvider: SDK loaded - version: ${sdkInfo.version}, path: ${sdkInfo.dllPath}`);
 
+      cameraLogger.info("EdsdkProvider: Initializing EDSDK...");
       const err = this.sdk.EdsInitializeSDK();
       if (err !== C.EDS_ERR_OK) {
+        cameraLogger.error(`EdsdkProvider: EdsInitializeSDK failed with error code: 0x${err.toString(16)} (${err})`);
         throw mapEdsErrorToTypedError(err, { operation: "initialize" });
       }
+      cameraLogger.info("EdsdkProvider: EDSDK initialized successfully");
       cameraLogger.info("EdsdkProvider: SDK initialized", {
         version: this.state.sdkVersion,
         dllPath: this.state.dllPath,
