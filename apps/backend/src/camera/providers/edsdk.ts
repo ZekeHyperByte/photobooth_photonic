@@ -496,25 +496,76 @@ export class EdsdkProvider implements CameraProvider {
       return;
     }
 
-    cameraLogger.info("EdsdkProvider: Starting live view");
+    cameraLogger.info("EdsdkProvider: Starting live view sequence");
 
+    // Step 1: Set EVF Mode to 1 (Enable)
     const evfMode = Buffer.alloc(4);
     evfMode.writeUInt32LE(1);
-    const evfModeErr = this.sdk.EdsSetPropertyData(
+    let evfModeErr = this.sdk.EdsSetPropertyData(
       this.cameraRef,
       C.kEdsPropID_Evf_Mode,
       0,
       4,
       evfMode,
     );
+    
     if (evfModeErr !== C.EDS_ERR_OK) {
-      cameraLogger.warn(
-        `EdsdkProvider: Failed to enable EVF mode: ${C.edsErrorToString(evfModeErr)}`,
-      );
+      // For 550D, this is often EDS_ERR_DEVICE_BUSY initially
+      if (evfModeErr === C.EDS_ERR_DEVICE_BUSY) {
+        cameraLogger.info("EdsdkProvider: Camera busy, waiting for ready state...");
+        const ready = await this.waitForCameraReady(5000); // Wait up to 5 seconds
+        if (ready) {
+          // Retry setting EVF mode
+          evfModeErr = this.sdk.EdsSetPropertyData(
+            this.cameraRef,
+            C.kEdsPropID_Evf_Mode,
+            0,
+            4,
+            evfMode,
+          );
+        }
+      }
+      
+      if (evfModeErr !== C.EDS_ERR_OK && evfModeErr !== C.EDS_ERR_DEVICE_BUSY) {
+        throw new LiveViewError(
+          `Failed to enable EVF mode: ${C.edsErrorToString(evfModeErr)}`,
+          { operation: "startLiveView", metadata: { step: "setEvfMode" } }
+        );
+      }
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Step 2: Wait for camera to physically enter live view
+    // 550D needs 500-1000ms for mirror flip
+    cameraLogger.debug("EdsdkProvider: Waiting for mirror flip...");
+    await new Promise(resolve => setTimeout(resolve, 800));
 
+    // Step 3: Verify EVF mode was actually set
+    const currentMode = await this.getPropertyWithRetry(
+      C.kEdsPropID_Evf_Mode,
+      5,
+      200
+    );
+    
+    if (currentMode !== 1) {
+      cameraLogger.warn(`EdsdkProvider: EVF mode not set, current: ${currentMode}, retrying...`);
+      // Retry once
+      const retryErr = this.sdk.EdsSetPropertyData(
+        this.cameraRef,
+        C.kEdsPropID_Evf_Mode,
+        0,
+        4,
+        evfMode,
+      );
+      if (retryErr !== C.EDS_ERR_OK) {
+        throw new LiveViewError(
+          `Failed to enable EVF mode on retry: ${C.edsErrorToString(retryErr)}`,
+          { operation: "startLiveView", metadata: { step: "retryEvfMode" } }
+        );
+      }
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Step 4: Set Output Device to PC
     const outputDevice = Buffer.alloc(4);
     outputDevice.writeUInt32LE(C.kEdsEvfOutputDevice_PC);
     const outputErr = this.sdk.EdsSetPropertyData(
@@ -528,10 +579,33 @@ export class EdsdkProvider implements CameraProvider {
     if (outputErr !== C.EDS_ERR_OK) {
       throw new LiveViewError(
         `Failed to set output device: ${C.edsErrorToString(outputErr)}`,
-        { operation: "startLiveView" },
+        { operation: "startLiveView", metadata: { step: "setOutputDevice" } }
       );
     }
 
+    // Step 5: Wait for EVF stream to be ready
+    cameraLogger.debug("EdsdkProvider: Waiting for EVF stream initialization...");
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Step 6: Test frame download before marking live view as active
+    cameraLogger.debug("EdsdkProvider: Testing EVF stream...");
+    const testFrame = await this.testEvfFrame();
+    
+    if (!testFrame) {
+      // Some cameras need a second attempt with longer delay
+      cameraLogger.warn("EdsdkProvider: First EVF test failed, retrying with extended delay...");
+      await new Promise(resolve => setTimeout(resolve, 800));
+      const retryTest = await this.testEvfFrame();
+      
+      if (!retryTest) {
+        throw new LiveViewError(
+          "EVF stream not available after retries. Camera may not support live view with current settings.",
+          { operation: "startLiveView", metadata: { step: "testEvfFrame", cameraModel: this.cameraModel } }
+        );
+      }
+    }
+
+    // Step 7: Mark live view as active only after successful test
     this.liveViewStats = {
       fps: 0,
       droppedFrames: 0,
@@ -541,8 +615,120 @@ export class EdsdkProvider implements CameraProvider {
     };
     this.frameConsumerReady = true;
     this.liveViewActive = true;
+    this.evfErrorCount = 0;
 
-    cameraLogger.info("EdsdkProvider: Live view started");
+    cameraLogger.info("EdsdkProvider: Live view started successfully");
+  }
+
+  /**
+   * Wait for camera to be ready (not busy)
+   */
+  private async waitForCameraReady(timeoutMs: number = 5000): Promise<boolean> {
+    const startTime = Date.now();
+    const checkInterval = 100;
+    
+    while (Date.now() - startTime < timeoutMs) {
+      // Try to get a property - will fail with DEVICE_BUSY if camera is busy
+      try {
+        const testBuf = Buffer.alloc(4);
+        const err = this.sdk!.EdsGetPropertyData(
+          this.cameraRef,
+          C.kEdsPropID_BatteryLevel,
+          0,
+          4,
+          testBuf
+        );
+        
+        if (err !== C.EDS_ERR_DEVICE_BUSY) {
+          return true;
+        }
+      } catch {
+        // Ignore errors during polling
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+    
+    return false;
+  }
+
+  /**
+   * Get property with retry logic
+   */
+  private async getPropertyWithRetry(
+    propertyId: number,
+    maxRetries: number = 5,
+    retryDelayMs: number = 200
+  ): Promise<number | null> {
+    for (let i = 0; i < maxRetries; i++) {
+      const buf = Buffer.alloc(4);
+      
+      const err = this.sdk!.EdsGetPropertyData(
+        this.cameraRef,
+        propertyId,
+        0,
+        4,
+        buf
+      );
+      
+      if (err === C.EDS_ERR_OK) {
+        return buf.readUInt32LE(0);
+      }
+      
+      if (err === C.EDS_ERR_DEVICE_BUSY) {
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+        continue;
+      }
+      
+      // Non-retryable error
+      return null;
+    }
+    
+    return null;
+  }
+
+  /**
+   * Test if EVF frame can be downloaded
+   */
+  private async testEvfFrame(): Promise<boolean> {
+    if (!this.sdk || !this.cameraRef) {
+      return false;
+    }
+    
+    try {
+      const streamOut = [null];
+      let err = this.sdk.EdsCreateMemoryStream(BigInt(0), streamOut);
+      if (err !== C.EDS_ERR_OK) {
+        return false;
+      }
+      const stream = streamOut[0];
+      
+      try {
+        const evfOut = [null];
+        err = this.sdk.EdsCreateEvfImageRef(stream, evfOut);
+        if (err !== C.EDS_ERR_OK) {
+          return false;
+        }
+        const evfImage = evfOut[0];
+        
+        try {
+          err = this.sdk.EdsDownloadEvfImage(this.cameraRef, evfImage);
+          
+          // Success or expected "no data yet" error (0x00000041 = EDS_ERR_OBJECT_NOTREADY)
+          if (err === C.EDS_ERR_OK || err === 0x00000041) {
+            return true;
+          }
+          
+          return false;
+        } finally {
+          this.sdk.EdsRelease(evfImage);
+        }
+      } finally {
+        this.sdk.EdsRelease(stream);
+      }
+    } catch {
+      return false;
+    }
   }
 
   async stopLiveView(): Promise<void> {

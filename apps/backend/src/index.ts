@@ -53,6 +53,7 @@ import {
   closeCameraWebSocket,
 } from "./services/camera-websocket";
 import { getCameraManager } from "./camera/camera-manager";
+import type { CameraProvider } from "./camera/types";
 import { getSessionPersistenceService } from "./services/session-persistence";
 import fs from "fs";
 import path from "path";
@@ -132,7 +133,7 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
 
     // Initialize CameraManager for multi-camera support (must be first)
     const cameraManager = getCameraManager();
-    let activeProvider = null;
+    let activeProvider: CameraProvider | null | undefined = null;
     try {
       await cameraManager.initialize();
       logger.info("CameraManager initialized with multi-camera support");
@@ -162,7 +163,8 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
 
     // Initialize camera service using CameraManager's provider
     // This prevents double initialization of EDSDK
-    const cameraService = getCameraService(activeProvider);
+    // Convert null to undefined for type compatibility
+    const cameraService = getCameraService(activeProvider || undefined);
     try {
       await cameraService.initialize();
       logger.info("Camera service initialized (using CameraManager provider)");
