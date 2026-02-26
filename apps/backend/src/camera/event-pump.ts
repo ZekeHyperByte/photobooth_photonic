@@ -26,7 +26,7 @@ export class CameraEventPump {
   private lastPumpTime = 0;
   private consecutiveErrors = 0;
   private readonly maxConsecutiveErrors = 10;
-  
+
   // Safety counters to prevent infinite loops
   private consecutivePumps = 0;
   private readonly maxConsecutivePumps = 100; // Force yield after 100 consecutive pumps
@@ -140,14 +140,17 @@ export class CameraEventPump {
 
     // Safety check: Prevent runaway pumping (max pumps per second)
     const elapsedSinceStart = startTime - this.pumpStartTime;
-    if (elapsedSinceStart > 1000 && this.totalPumps > this.maxPumpsPerSecond) {
-      cameraLogger.error("EventPump: Runaway pump detected, stopping", {
-        totalPumps: this.totalPumps,
-        elapsedMs: elapsedSinceStart,
-        pumpsPerSecond: this.totalPumps / (elapsedSinceStart / 1000),
-      });
-      this.stop();
-      return;
+    if (elapsedSinceStart > 1000) {
+      const pumpsPerSecond = this.totalPumps / (elapsedSinceStart / 1000);
+      if (pumpsPerSecond > this.maxPumpsPerSecond) {
+        cameraLogger.error("EventPump: Runaway pump detected, stopping", {
+          totalPumps: this.totalPumps,
+          elapsedMs: elapsedSinceStart,
+          pumpsPerSecond,
+        });
+        this.stop();
+        return;
+      }
     }
 
     try {

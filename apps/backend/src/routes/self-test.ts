@@ -90,20 +90,32 @@ export async function selfTestRoutes(fastify: FastifyInstance) {
 
           if (stats) {
             // Get free space (rough estimate from available blocks)
-            const { execSync } = require("child_process");
             let freeSpaceGB = 0;
 
             try {
-              const output = execSync(
-                `df -BG "${dataPath}" | tail -1 | awk '{print $4}'`,
-                {
-                  encoding: "utf8",
-                },
-              );
-              freeSpaceGB = parseInt(output.replace("G", "").trim()) || 0;
+              // Node 19+ cross-platform approach
+              const statfs = fs.statfsSync(dataPath);
+              freeSpaceGB = (statfs.bavail * statfs.bsize) / (1024 * 1024 * 1024);
             } catch {
-              // Fallback: assume sufficient space
-              freeSpaceGB = 50;
+              // Fallback if statfsSync fails or is not available
+              try {
+                if (process.platform !== "win32") {
+                  const { execSync } = require("child_process");
+                  const output = execSync(
+                    `df -BG "${dataPath}" | tail -1 | awk '{print $4}'`,
+                    {
+                      encoding: "utf8",
+                    },
+                  );
+                  freeSpaceGB = parseInt(output.replace("G", "").trim()) || 0;
+                } else {
+                  // Assume sufficient space on Windows if statfs fails
+                  freeSpaceGB = 50;
+                }
+              } catch {
+                // Final fallback: assume sufficient space
+                freeSpaceGB = 50;
+              }
             }
 
             result.storage.ok = freeSpaceGB > 1; // At least 1GB free
@@ -267,9 +279,9 @@ export async function selfTestRoutes(fastify: FastifyInstance) {
           summary: allPassed
             ? "All tests passed"
             : `Some tests failed: ${Object.entries(result)
-                .filter(([_, test]) => !test.ok)
-                .map(([name]) => name)
-                .join(", ")}`,
+              .filter(([_, test]) => !test.ok)
+              .map(([name]) => name)
+              .join(", ")}`,
         });
       } catch (error: any) {
         logger.error("Self-test: Unexpected error", { error });

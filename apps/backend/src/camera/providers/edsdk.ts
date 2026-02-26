@@ -318,20 +318,34 @@ export class EdsdkProvider implements CameraProvider {
 
     if (this.liveViewActive) {
       await this.stopLiveView();
-
-      // After stopping live view, poll for camera readiness
-      // Canon 550D needs time for mirror to settle and AF to re-initialize
-      cameraLogger.debug(
-        "EdsdkProvider: Polling for camera readiness after live view...",
-      );
-      const isReady = await this.pollForCameraReady(5000, 200);
-      if (!isReady) {
-        cameraLogger.warn(
-          "EdsdkProvider: Camera not ready after live view, proceeding anyway...",
-        );
-      } else {
-        cameraLogger.debug("EdsdkProvider: Camera is ready for capture");
+    } else {
+      // Check if camera is physically in EVF mode (e.g., user pressed the Live View button)
+      try {
+        const evfMode = await this.getPropertyWithRetry(C.kEdsPropID_Evf_Mode, 2, 200);
+        if (evfMode === 1) {
+          cameraLogger.info("EdsdkProvider: Camera physically in Live View, disabling before capture...");
+          const disableEvf = Buffer.alloc(4);
+          disableEvf.writeUInt32LE(0);
+          this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_Mode, 0, 4, disableEvf);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+        }
+      } catch (e) {
+        // Ignore errors checking physical EVF state
       }
+    }
+
+    // Always poll for camera readiness before capture
+    // Canon 550D needs time for mirror to settle and AF to re-initialize after state changes
+    cameraLogger.debug(
+      "EdsdkProvider: Polling for camera readiness before capture...",
+    );
+    const isReady = await this.pollForCameraReady(5000, 200);
+    if (!isReady) {
+      cameraLogger.warn(
+        "EdsdkProvider: Camera not ready, proceeding anyway...",
+      );
+    } else {
+      cameraLogger.debug("EdsdkProvider: Camera is ready for capture");
     }
 
     // Dismiss Quick Control screen (if showing) before capture
@@ -529,6 +543,18 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     cameraLogger.info("EdsdkProvider: Starting live view sequence");
+
+    // Dismiss Quick Control screen or wake up camera before starting EVF
+    // Canon 550D refuses to start live view if the Q menu is active
+    cameraLogger.debug("EdsdkProvider: Dismissing Quick Control screen / waking up camera...");
+    try {
+      await this.triggerFocus();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (error) {
+      cameraLogger.debug(
+        "EdsdkProvider: Failed to dismiss Q screen, proceeding anyway...",
+      );
+    }
 
     // Step 1: Set EVF Mode to 1 (Enable)
     const evfMode = Buffer.alloc(4);
@@ -795,11 +821,9 @@ export class EdsdkProvider implements CameraProvider {
     return null;
   }
 
-  /**
-   * Test if EVF frame can be downloaded
-   */
   private async testEvfFrame(): Promise<boolean> {
     if (!this.sdk || !this.cameraRef) {
+      cameraLogger.debug("EdsdkProvider: testEvfFrame failed - SDK or camera not initialized");
       return false;
     }
 
@@ -807,6 +831,7 @@ export class EdsdkProvider implements CameraProvider {
       const streamOut = [null];
       let err = this.sdk.EdsCreateMemoryStream(BigInt(0), streamOut);
       if (err !== C.EDS_ERR_OK) {
+        cameraLogger.debug(`EdsdkProvider: testEvfFrame failed - EdsCreateMemoryStream returned ${C.edsErrorToString(err)}`);
         return false;
       }
       const stream = streamOut[0];
@@ -815,6 +840,7 @@ export class EdsdkProvider implements CameraProvider {
         const evfOut = [null];
         err = this.sdk.EdsCreateEvfImageRef(stream, evfOut);
         if (err !== C.EDS_ERR_OK) {
+          cameraLogger.debug(`EdsdkProvider: testEvfFrame failed - EdsCreateEvfImageRef returned ${C.edsErrorToString(err)}`);
           return false;
         }
         const evfImage = evfOut[0];
@@ -827,6 +853,7 @@ export class EdsdkProvider implements CameraProvider {
             return true;
           }
 
+          cameraLogger.debug(`EdsdkProvider: testEvfFrame failed - EdsDownloadEvfImage returned ${C.edsErrorToString(err)}`);
           return false;
         } finally {
           this.sdk.EdsRelease(evfImage);
@@ -834,7 +861,8 @@ export class EdsdkProvider implements CameraProvider {
       } finally {
         this.sdk.EdsRelease(stream);
       }
-    } catch {
+    } catch (error) {
+      cameraLogger.error("EdsdkProvider: testEvfFrame threw an error", { error });
       return false;
     }
   }
@@ -1026,7 +1054,7 @@ export class EdsdkProvider implements CameraProvider {
           if (now - this.lastEvfErrorLogTime > 5000) {
             cameraLogger.warn(
               `EdsdkProvider: EVF stream not available (Canon 550D limitation with SDK v${this.state.sdkVersion}). ` +
-                `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
+              `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
               { error: C.edsErrorToString(err), code: `0x${err.toString(16)}` },
             );
             this.lastEvfErrorLogTime = now;
@@ -1271,17 +1299,17 @@ export class EdsdkProvider implements CameraProvider {
         storageAvailable: sdCardInfo.present && sdCardInfo.freeSpaceMB !== null,
         settings: includeSettings
           ? {
-              iso: iso ? String(iso) : "Auto",
-              aperture: av ? `f/${av}` : "Auto",
-              shutterSpeed: tv ? String(tv) : "Auto",
-              whiteBalance: wb ? String(wb) : "Auto",
-            }
+            iso: iso ? String(iso) : "Auto",
+            aperture: av ? `f/${av}` : "Auto",
+            shutterSpeed: tv ? String(tv) : "Auto",
+            whiteBalance: wb ? String(wb) : "Auto",
+          }
           : {
-              iso: "Auto",
-              aperture: "Auto",
-              shutterSpeed: "Auto",
-              whiteBalance: "Auto",
-            },
+            iso: "Auto",
+            aperture: "Auto",
+            shutterSpeed: "Auto",
+            whiteBalance: "Auto",
+          },
         providerMetadata: {
           provider: "edsdk",
           liveViewActive: this.liveViewActive,
@@ -1302,10 +1330,10 @@ export class EdsdkProvider implements CameraProvider {
         },
         watchdog: watchdogStatus
           ? {
-              status: watchdogStatus.status,
-              reconnectAttempts: watchdogStatus.reconnectAttempts,
-              lastReconnectAt: watchdogStatus.lastReconnectAt,
-            }
+            status: watchdogStatus.status,
+            reconnectAttempts: watchdogStatus.reconnectAttempts,
+            lastReconnectAt: watchdogStatus.lastReconnectAt,
+          }
           : undefined,
         sdk: {
           version: this.state.sdkVersion || "unknown",
@@ -1422,7 +1450,7 @@ export class EdsdkProvider implements CameraProvider {
     ): number => {
       cameraLogger.debug(
         `EdsdkProvider: Property event 0x${event.toString(16)}, ` +
-          `property 0x${propertyId.toString(16)}, param ${param}`,
+        `property 0x${propertyId.toString(16)}, param ${param}`,
       );
       return C.EDS_ERR_OK;
     };
