@@ -321,12 +321,24 @@ export class EdsdkProvider implements CameraProvider {
     } else {
       // Check if camera is physically in EVF mode (e.g., user pressed the Live View button)
       try {
-        const evfMode = await this.getPropertyWithRetry(C.kEdsPropID_Evf_Mode, 2, 200);
+        const evfMode = await this.getPropertyWithRetry(
+          C.kEdsPropID_Evf_Mode,
+          2,
+          200,
+        );
         if (evfMode === 1) {
-          cameraLogger.info("EdsdkProvider: Camera physically in Live View, disabling before capture...");
+          cameraLogger.info(
+            "EdsdkProvider: Camera physically in Live View, disabling before capture...",
+          );
           const disableEvf = Buffer.alloc(4);
           disableEvf.writeUInt32LE(0);
-          this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_Mode, 0, 4, disableEvf);
+          this.sdk.EdsSetPropertyData(
+            this.cameraRef,
+            C.kEdsPropID_Evf_Mode,
+            0,
+            4,
+            disableEvf,
+          );
           await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       } catch (e) {
@@ -349,15 +361,34 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     // Dismiss Quick Control screen (if showing) before capture
-    // Canon 550D shows Q menu after live view - needs shutter half-press to dismiss
+    // Canon 550D shows Q menu after live view - needs UI unlock to dismiss properly
     cameraLogger.debug("EdsdkProvider: Dismissing Quick Control screen...");
     try {
-      await this.triggerFocus();
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      cameraLogger.debug("EdsdkProvider: Quick Control screen dismissed");
+      await this.unlockUI();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      cameraLogger.debug(
+        "EdsdkProvider: Quick Control screen dismissed via UIUnlock",
+      );
     } catch (error) {
       cameraLogger.debug(
-        "EdsdkProvider: Failed to dismiss Q screen, proceeding anyway...",
+        "EdsdkProvider: Failed to dismiss Q screen via UIUnlock, trying triggerFocus...",
+      );
+      try {
+        await this.triggerFocus();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch (e) {
+        // Ignore
+      }
+    }
+
+    // Lock UI before capture to prevent Q menu from appearing
+    cameraLogger.debug("EdsdkProvider: Locking UI before capture...");
+    try {
+      await this.lockUI();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    } catch (error) {
+      cameraLogger.debug(
+        "EdsdkProvider: Failed to lock UI, proceeding anyway...",
       );
     }
 
@@ -382,6 +413,16 @@ export class EdsdkProvider implements CameraProvider {
       cameraLogger.debug("EdsdkProvider: Post-capture recovery delay (3s)...");
       await new Promise((resolve) => setTimeout(resolve, 3000));
       cameraLogger.debug("EdsdkProvider: Post-capture recovery complete");
+
+      // Unlock UI to dismiss any menu that may have appeared (Q Menu)
+      // This is critical for 550D which enters Q menu after capture
+      cameraLogger.debug("EdsdkProvider: Unlocking UI after capture...");
+      try {
+        await this.unlockUI();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      } catch (error) {
+        cameraLogger.debug("EdsdkProvider: Failed to unlock UI after capture");
+      }
 
       this.state.captureCount++;
       this.state.lastCaptureAt = new Date().toISOString();
@@ -544,9 +585,25 @@ export class EdsdkProvider implements CameraProvider {
 
     cameraLogger.info("EdsdkProvider: Starting live view sequence");
 
+    // Step 0: Unlock UI to dismiss any active menus (Q Menu, etc.)
+    // Canon 550D gets stuck in Q menu after capture - UIUnlock forces exit
+    cameraLogger.debug(
+      "EdsdkProvider: Unlocking UI to dismiss any active menus...",
+    );
+    try {
+      await this.unlockUI();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    } catch (error) {
+      cameraLogger.debug(
+        "EdsdkProvider: UIUnlock failed, proceeding anyway...",
+      );
+    }
+
     // Dismiss Quick Control screen or wake up camera before starting EVF
     // Canon 550D refuses to start live view if the Q menu is active
-    cameraLogger.debug("EdsdkProvider: Dismissing Quick Control screen / waking up camera...");
+    cameraLogger.debug(
+      "EdsdkProvider: Dismissing Quick Control screen / waking up camera...",
+    );
     try {
       await this.triggerFocus();
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -558,20 +615,36 @@ export class EdsdkProvider implements CameraProvider {
 
     // Step 1: Push prerequisite properties for older cameras (e.g. 550D)
     // Sometimes older cameras fail to open the stream if Zoom/AF aren't explicitly configured first
-    cameraLogger.debug("EdsdkProvider: Setting PC Output Device and EVF prerequisites...");
+    cameraLogger.debug(
+      "EdsdkProvider: Setting PC Output Device and EVF prerequisites...",
+    );
 
     // Set Output Device to PC FIRST
     const outputDevice = Buffer.alloc(4);
     outputDevice.writeUInt32LE(C.kEdsEvfOutputDevice_PC);
-    let outputErr = this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_OutputDevice, 0, 4, outputDevice);
+    let outputErr = this.sdk.EdsSetPropertyData(
+      this.cameraRef,
+      C.kEdsPropID_Evf_OutputDevice,
+      0,
+      4,
+      outputDevice,
+    );
     if (outputErr !== C.EDS_ERR_OK) {
-      cameraLogger.warn(`EdsdkProvider: Initial OutputDevice=PC failed: ${C.edsErrorToString(outputErr)} (will retry later)`);
+      cameraLogger.warn(
+        `EdsdkProvider: Initial OutputDevice=PC failed: ${C.edsErrorToString(outputErr)} (will retry later)`,
+      );
     }
 
     // Set Zoom to Fit (1)
     const zoom = Buffer.alloc(4);
     zoom.writeUInt32LE(1);
-    this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_Zoom, 0, 4, zoom);
+    this.sdk.EdsSetPropertyData(
+      this.cameraRef,
+      C.kEdsPropID_Evf_Zoom,
+      0,
+      4,
+      zoom,
+    );
 
     // Avoid busy state
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -621,9 +694,17 @@ export class EdsdkProvider implements CameraProvider {
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // Step 4: Ensure Output Device is PC
-    outputErr = this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_OutputDevice, 0, 4, outputDevice);
+    outputErr = this.sdk.EdsSetPropertyData(
+      this.cameraRef,
+      C.kEdsPropID_Evf_OutputDevice,
+      0,
+      4,
+      outputDevice,
+    );
     if (outputErr !== C.EDS_ERR_OK) {
-      cameraLogger.warn(`EdsdkProvider: Secondary OutputDevice=PC failed: ${C.edsErrorToString(outputErr)}`);
+      cameraLogger.warn(
+        `EdsdkProvider: Secondary OutputDevice=PC failed: ${C.edsErrorToString(outputErr)}`,
+      );
     }
 
     // Step 5: Verify EVF mode was actually set
@@ -800,6 +881,10 @@ export class EdsdkProvider implements CameraProvider {
   /**
    * Get property with retry logic
    */
+  /**
+   * Get property with retry logic
+   * Enhanced for 550D BUSY state handling
+   */
   private async getPropertyWithRetry(
     propertyId: number,
     maxRetries: number = 5,
@@ -821,6 +906,9 @@ export class EdsdkProvider implements CameraProvider {
       }
 
       if (err === C.EDS_ERR_DEVICE_BUSY) {
+        cameraLogger.debug(
+          `EdsdkProvider: Property 0x${propertyId.toString(16)} read returned BUSY, attempt ${i + 1}/${maxRetries}`,
+        );
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         continue;
       }
@@ -829,12 +917,17 @@ export class EdsdkProvider implements CameraProvider {
       return null;
     }
 
+    cameraLogger.warn(
+      `EdsdkProvider: Property 0x${propertyId.toString(16)} still BUSY after ${maxRetries} attempts`,
+    );
     return null;
   }
 
   private async testEvfFrame(): Promise<boolean> {
     if (!this.sdk || !this.cameraRef) {
-      cameraLogger.debug("EdsdkProvider: testEvfFrame failed - SDK or camera not initialized");
+      cameraLogger.debug(
+        "EdsdkProvider: testEvfFrame failed - SDK or camera not initialized",
+      );
       return false;
     }
 
@@ -842,7 +935,9 @@ export class EdsdkProvider implements CameraProvider {
       const streamOut = [null];
       let err = this.sdk.EdsCreateMemoryStream(BigInt(0), streamOut);
       if (err !== C.EDS_ERR_OK) {
-        cameraLogger.debug(`EdsdkProvider: testEvfFrame failed - EdsCreateMemoryStream returned ${C.edsErrorToString(err)}`);
+        cameraLogger.debug(
+          `EdsdkProvider: testEvfFrame failed - EdsCreateMemoryStream returned ${C.edsErrorToString(err)}`,
+        );
         return false;
       }
       const stream = streamOut[0];
@@ -851,7 +946,9 @@ export class EdsdkProvider implements CameraProvider {
         const evfOut = [null];
         err = this.sdk.EdsCreateEvfImageRef(stream, evfOut);
         if (err !== C.EDS_ERR_OK) {
-          cameraLogger.debug(`EdsdkProvider: testEvfFrame failed - EdsCreateEvfImageRef returned ${C.edsErrorToString(err)}`);
+          cameraLogger.debug(
+            `EdsdkProvider: testEvfFrame failed - EdsCreateEvfImageRef returned ${C.edsErrorToString(err)}`,
+          );
           return false;
         }
         const evfImage = evfOut[0];
@@ -864,7 +961,9 @@ export class EdsdkProvider implements CameraProvider {
             return true;
           }
 
-          cameraLogger.debug(`EdsdkProvider: testEvfFrame failed - EdsDownloadEvfImage returned ${C.edsErrorToString(err)}`);
+          cameraLogger.debug(
+            `EdsdkProvider: testEvfFrame failed - EdsDownloadEvfImage returned ${C.edsErrorToString(err)}`,
+          );
           return false;
         } finally {
           this.sdk.EdsRelease(evfImage);
@@ -873,7 +972,9 @@ export class EdsdkProvider implements CameraProvider {
         this.sdk.EdsRelease(stream);
       }
     } catch (error) {
-      cameraLogger.error("EdsdkProvider: testEvfFrame threw an error", { error });
+      cameraLogger.error("EdsdkProvider: testEvfFrame threw an error", {
+        error,
+      });
       return false;
     }
   }
@@ -1065,7 +1166,7 @@ export class EdsdkProvider implements CameraProvider {
           if (now - this.lastEvfErrorLogTime > 5000) {
             cameraLogger.warn(
               `EdsdkProvider: EVF stream not available (Canon 550D limitation with SDK v${this.state.sdkVersion}). ` +
-              `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
+                `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
               { error: C.edsErrorToString(err), code: `0x${err.toString(16)}` },
             );
             this.lastEvfErrorLogTime = now;
@@ -1310,17 +1411,17 @@ export class EdsdkProvider implements CameraProvider {
         storageAvailable: sdCardInfo.present && sdCardInfo.freeSpaceMB !== null,
         settings: includeSettings
           ? {
-            iso: iso ? String(iso) : "Auto",
-            aperture: av ? `f/${av}` : "Auto",
-            shutterSpeed: tv ? String(tv) : "Auto",
-            whiteBalance: wb ? String(wb) : "Auto",
-          }
+              iso: iso ? String(iso) : "Auto",
+              aperture: av ? `f/${av}` : "Auto",
+              shutterSpeed: tv ? String(tv) : "Auto",
+              whiteBalance: wb ? String(wb) : "Auto",
+            }
           : {
-            iso: "Auto",
-            aperture: "Auto",
-            shutterSpeed: "Auto",
-            whiteBalance: "Auto",
-          },
+              iso: "Auto",
+              aperture: "Auto",
+              shutterSpeed: "Auto",
+              whiteBalance: "Auto",
+            },
         providerMetadata: {
           provider: "edsdk",
           liveViewActive: this.liveViewActive,
@@ -1341,10 +1442,10 @@ export class EdsdkProvider implements CameraProvider {
         },
         watchdog: watchdogStatus
           ? {
-            status: watchdogStatus.status,
-            reconnectAttempts: watchdogStatus.reconnectAttempts,
-            lastReconnectAt: watchdogStatus.lastReconnectAt,
-          }
+              status: watchdogStatus.status,
+              reconnectAttempts: watchdogStatus.reconnectAttempts,
+              lastReconnectAt: watchdogStatus.lastReconnectAt,
+            }
           : undefined,
         sdk: {
           version: this.state.sdkVersion || "unknown",
@@ -1411,6 +1512,53 @@ export class EdsdkProvider implements CameraProvider {
     );
   }
 
+  /**
+   * Unlock camera UI to dismiss menus (Q Menu, etc.)
+   * Critical for 550D which gets stuck in Q menu after capture
+   */
+  private async unlockUI(): Promise<void> {
+    if (!this.sdk || !this.cameraRef) {
+      return;
+    }
+
+    const err = this.sdk.EdsSendStatusCommand(
+      this.cameraRef,
+      C.kEdsCameraStatusCommand_UIUnLock,
+      0,
+    );
+
+    if (err !== C.EDS_ERR_OK) {
+      cameraLogger.debug(
+        `EdsdkProvider: UIUnlock returned: ${C.edsErrorToString(err)}`,
+      );
+    } else {
+      cameraLogger.debug("EdsdkProvider: UI unlocked successfully");
+    }
+  }
+
+  /**
+   * Lock camera UI to prevent menu overlays
+   */
+  private async lockUI(): Promise<void> {
+    if (!this.sdk || !this.cameraRef) {
+      return;
+    }
+
+    const err = this.sdk.EdsSendStatusCommand(
+      this.cameraRef,
+      C.kEdsCameraStatusCommand_UILock,
+      0,
+    );
+
+    if (err !== C.EDS_ERR_OK) {
+      cameraLogger.debug(
+        `EdsdkProvider: UILock returned: ${C.edsErrorToString(err)}`,
+      );
+    } else {
+      cameraLogger.debug("EdsdkProvider: UI locked successfully");
+    }
+  }
+
   getCaptureLockStatus(): { locked: boolean; mode: string } {
     return {
       locked: this.captureMutex.isLocked(),
@@ -1461,7 +1609,7 @@ export class EdsdkProvider implements CameraProvider {
     ): number => {
       cameraLogger.debug(
         `EdsdkProvider: Property event 0x${event.toString(16)}, ` +
-        `property 0x${propertyId.toString(16)}, param ${param}`,
+          `property 0x${propertyId.toString(16)}, param ${param}`,
       );
       return C.EDS_ERR_OK;
     };
