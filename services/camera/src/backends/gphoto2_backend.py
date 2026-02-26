@@ -193,7 +193,7 @@ class GPhoto2Backend:
         """Check if camera is connected"""
         return self._connected and self._initialized and self._camera is not None
     
-    def _set_config(self, field: str, value: str) -> None:
+    def _set_config(self, field: str, value: str | int) -> None:
         """Set camera configuration value"""
         if not self._camera:
             raise RuntimeError("Camera not initialized")
@@ -230,7 +230,7 @@ class GPhoto2Backend:
                 self._set_config("shutterspeed", self.config.shutter_speed_liveview)
             
             # Enable viewfinder
-            self._set_config("viewfinder", "1")
+            self._set_config("viewfinder", 1)
             
             if self.config.canon_eosmoviemode:
                 try:
@@ -248,7 +248,7 @@ class GPhoto2Backend:
             # Disable viewfinder before capture for faster AF
             if self.config.disable_viewfinder_before_capture:
                 try:
-                    self._set_config("viewfinder", "0")
+                    self._set_config("viewfinder", 0)
                     logger.info("Disabled viewfinder before capture")
                 except Exception as e:
                     logger.warning(f"Could not disable viewfinder: {e}")
@@ -304,7 +304,7 @@ class GPhoto2Backend:
         
         # Disable viewfinder
         try:
-            self._set_config("viewfinder", "0")
+            self._set_config("viewfinder", 0)
         except Exception as e:
             logger.warning(f"Could not disable viewfinder: {e}")
         
