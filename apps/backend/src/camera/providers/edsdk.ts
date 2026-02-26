@@ -556,7 +556,25 @@ export class EdsdkProvider implements CameraProvider {
       );
     }
 
-    // Step 1: Set EVF Mode to 1 (Enable)
+    // Step 1: Set Output Device to PC (Must be done FIRST on older cameras like 550D)
+    cameraLogger.debug("EdsdkProvider: Setting EVF Output Device to PC...");
+    const outputDevice = Buffer.alloc(4);
+    outputDevice.writeUInt32LE(C.kEdsEvfOutputDevice_PC);
+    const outputErr = this.sdk.EdsSetPropertyData(
+      this.cameraRef,
+      C.kEdsPropID_Evf_OutputDevice,
+      0,
+      4,
+      outputDevice,
+    );
+
+    if (outputErr !== C.EDS_ERR_OK) {
+      // It might be busy, we can still try to proceed
+      cameraLogger.warn(`EdsdkProvider: Failed to set output device: ${C.edsErrorToString(outputErr)}`);
+    }
+
+    // Step 2: Set EVF Mode to 1 (Enable)
+    cameraLogger.debug("EdsdkProvider: Enabling EVF Mode...");
     const evfMode = Buffer.alloc(4);
     evfMode.writeUInt32LE(1);
     let evfModeErr = this.sdk.EdsSetPropertyData(
@@ -594,12 +612,12 @@ export class EdsdkProvider implements CameraProvider {
       }
     }
 
-    // Step 2: Wait for camera to physically enter live view
+    // Step 3: Wait for camera to physically enter live view
     // 550D needs 500-1000ms for mirror flip, let's be safe with 1500ms
     cameraLogger.debug("EdsdkProvider: Waiting for mirror flip...");
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // Step 3: Verify EVF mode was actually set
+    // Step 4: Verify EVF mode was actually set
     const currentMode = await this.getPropertyWithRetry(
       C.kEdsPropID_Evf_Mode,
       5,
@@ -626,24 +644,6 @@ export class EdsdkProvider implements CameraProvider {
       }
       // Wait again for physical transition
       await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
-
-    // Step 4: Set Output Device to PC
-    const outputDevice = Buffer.alloc(4);
-    outputDevice.writeUInt32LE(C.kEdsEvfOutputDevice_PC);
-    const outputErr = this.sdk.EdsSetPropertyData(
-      this.cameraRef,
-      C.kEdsPropID_Evf_OutputDevice,
-      0,
-      4,
-      outputDevice,
-    );
-
-    if (outputErr !== C.EDS_ERR_OK) {
-      throw new LiveViewError(
-        `Failed to set output device: ${C.edsErrorToString(outputErr)}`,
-        { operation: "startLiveView", metadata: { step: "setOutputDevice" } },
-      );
     }
 
     // Step 5: Wait for EVF stream to be ready on the camera before testing
