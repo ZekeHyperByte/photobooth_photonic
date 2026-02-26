@@ -100,14 +100,14 @@ export const env: {
   templatesPath: process.env.TEMPLATES_PATH || "./data/templates",
   thumbnailsPath: process.env.THUMBNAILS_PATH || "./data/thumbnails",
 
-  // Camera provider: 'edsdk' | 'edsdk-v2' | 'gphoto2' | 'webcam' | 'mock'
+  // Camera provider: 'edsdk' | 'edsdk-v2' | 'gphoto2' | 'python-gphoto2' | 'webcam' | 'mock'
   // Auto-detected based on platform if not specified:
-  // - Linux: gphoto2
+  // - Linux: python-gphoto2 (Python service - fast)
   // - Windows: edsdk-v2
   // - Other: mock
   cameraProvider: (process.env.CAMERA_PROVIDER ||
     (process.platform === "linux"
-      ? "gphoto2"
+      ? "python-gphoto2"
       : process.platform === "win32"
         ? "edsdk-v2"
         : "mock")) as
