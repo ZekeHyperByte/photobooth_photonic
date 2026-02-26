@@ -6,11 +6,12 @@
 import { CameraProvider } from "../types";
 import { MockProvider } from "./mock";
 import { EdsdkProvider } from "./edsdk";
+import { EdsdkV2Provider } from "./edsdk-v2";
 import { WebcamProvider } from "./webcam";
 import { cameraLogger } from "../logger";
 import { env } from "../../config/env";
 
-export type ProviderType = "edsdk" | "mock" | "webcam";
+export type ProviderType = "edsdk" | "edsdk-v2" | "mock" | "webcam";
 
 /**
  * Create a camera provider instance
@@ -24,7 +25,12 @@ export function createProvider(type?: ProviderType): CameraProvider {
   });
 
   switch (providerType) {
+    case "edsdk-v2":
+      cameraLogger.info("CameraProviderFactory: Using new EDSDK v2 provider (state machine)");
+      return new EdsdkV2Provider();
+
     case "edsdk":
+      cameraLogger.info("CameraProviderFactory: Using legacy EDSDK provider");
       return new EdsdkProvider();
 
     case "mock":
@@ -47,7 +53,8 @@ export function getAvailableProviders(): ProviderType[] {
 
   // EDSDK only available on Windows
   if (process.platform === "win32") {
-    providers.push("edsdk");
+    providers.push("edsdk-v2"); // New state machine provider
+    providers.push("edsdk");    // Legacy provider
   }
 
   return providers;
@@ -58,8 +65,10 @@ export function getAvailableProviders(): ProviderType[] {
  */
 export function getProviderDisplayName(type: ProviderType): string {
   switch (type) {
+    case "edsdk-v2":
+      return "Canon DSLR (EDSDK v2 - State Machine)";
     case "edsdk":
-      return "Canon DSLR (EDSDK)";
+      return "Canon DSLR (EDSDK Legacy)";
     case "mock":
       return "Mock/Simulated Camera";
     case "webcam":
@@ -67,4 +76,21 @@ export function getProviderDisplayName(type: ProviderType): string {
     default:
       return "Unknown";
   }
+}
+
+/**
+ * Get recommended provider for a camera model
+ */
+export function getRecommendedProvider(cameraModel?: string): ProviderType {
+  // For 550D and other older cameras, recommend the new v2 provider
+  // which has better state synchronization
+  if (cameraModel) {
+    const model = cameraModel.toLowerCase();
+    if (model.includes("550") || model.includes("rebel") || model.includes("t2i")) {
+      return "edsdk-v2";
+    }
+  }
+
+  // Default to new provider for all cameras
+  return "edsdk-v2";
 }
