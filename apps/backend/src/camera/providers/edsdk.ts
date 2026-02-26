@@ -595,9 +595,9 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     // Step 2: Wait for camera to physically enter live view
-    // 550D needs 500-1000ms for mirror flip
+    // 550D needs 500-1000ms for mirror flip, let's be safe with 1500ms
     cameraLogger.debug("EdsdkProvider: Waiting for mirror flip...");
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // Step 3: Verify EVF mode was actually set
     const currentMode = await this.getPropertyWithRetry(
@@ -624,7 +624,8 @@ export class EdsdkProvider implements CameraProvider {
           { operation: "startLiveView", metadata: { step: "retryEvfMode" } },
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Wait again for physical transition
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
     // Step 4: Set Output Device to PC
@@ -645,11 +646,12 @@ export class EdsdkProvider implements CameraProvider {
       );
     }
 
-    // Step 5: Wait for EVF stream to be ready
+    // Step 5: Wait for EVF stream to be ready on the camera before testing
+    // Sometimes the stream isn't immediately available after routing to PC
     cameraLogger.debug(
       "EdsdkProvider: Waiting for EVF stream initialization...",
     );
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Step 6: Test frame download before marking live view as active
     cameraLogger.debug("EdsdkProvider: Testing EVF stream...");
