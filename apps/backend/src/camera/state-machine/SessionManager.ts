@@ -20,6 +20,10 @@ import {
 } from "../errors";
 
 export class SessionManager {
+  // Static tracking for SDK reinitialization delay
+  private static lastTerminationTime: number = 0;
+  private static readonly REINIT_DELAY_MS: number = 1000;
+
   private sdk: EdsdkBindings | null = null;
   private cameraRef: any = null;
   private cameraListRef: any = null;
@@ -60,6 +64,14 @@ export class SessionManager {
    */
   async initialize(): Promise<CameraInfo> {
     cameraLogger.info("SessionManager: Initializing EDSDK");
+
+    // Check if we need to wait before reinitializing SDK
+    const elapsed = Date.now() - SessionManager.lastTerminationTime;
+    if (elapsed < SessionManager.REINIT_DELAY_MS) {
+      const waitTime = SessionManager.REINIT_DELAY_MS - elapsed;
+      cameraLogger.info(`SessionManager: Waiting ${waitTime}ms before reinitializing SDK...`);
+      await this.sleep(waitTime);
+    }
 
     try {
       // Load the SDK library
@@ -476,6 +488,16 @@ export class SessionManager {
     this.cameraRef = null;
     this.cameraListRef = null;
 
+    // Track termination time for reinitialization guard
+    SessionManager.lastTerminationTime = Date.now();
+
     cameraLogger.debug("SessionManager: Cleanup complete");
+  }
+
+  /**
+   * Sleep helper
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

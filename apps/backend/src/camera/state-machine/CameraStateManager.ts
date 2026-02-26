@@ -32,6 +32,7 @@ import {
   LiveViewError,
 } from "../errors";
 import { EdsdkBindings } from "../bindings/edsdk-bindings";
+import { CameraEventPump } from "../event-pump";
 import * as path from "path";
 import * as fs from "fs";
 import { nanoid } from "nanoid";
@@ -46,6 +47,7 @@ export class CameraStateManager {
   private sessionManager: SessionManager | null = null;
   private stateSynchronizer: StateSynchronizer;
   private liveViewEngine: LiveViewEngine | null = null;
+  private eventPump: CameraEventPump | null = null;
 
   // Configuration
   private outputDirectory: string;
@@ -195,6 +197,12 @@ export class CameraStateManager {
     await this.transitionTo("DISCONNECTING");
 
     try {
+      // Stop event pump
+      if (this.eventPump) {
+        this.eventPump.stop();
+        this.eventPump = null;
+      }
+
       // Stop live view if active
       if (this.liveViewEngine) {
         await this.liveViewEngine.stop();
@@ -252,7 +260,12 @@ export class CameraStateManager {
       const sdk = this.sessionManager.getSdk();
       const cameraRef = this.sessionManager.getCameraRef();
 
-      // Wait for camera to be ready
+      // Step 0: Wake up camera and dismiss Q menu (critical for 550D)
+      cameraLogger.debug("CameraStateManager: Waking up camera...");
+      await this.wakeUpCamera();
+      await this.sleep(500);
+
+      // Step 1: Wait for camera to be ready
       const ready = await this.stateSynchronizer.waitForReady(
         sdk.EdsGetPropertyData.bind(sdk),
         cameraRef,
@@ -265,14 +278,19 @@ export class CameraStateManager {
         });
       }
 
-      // Step 1: Set Output Device to PC
+      // Step 2: Set EVF Zoom to Fit (1) - prerequisite for 550D
+      cameraLogger.debug("CameraStateManager: Setting EVF Zoom to Fit");
+      await this.setProperty(C.kEdsPropID_Evf_Zoom, 1);
+      await this.sleep(300);
+
+      // Step 3: Set Output Device to PC
       cameraLogger.debug("CameraStateManager: Setting EVF OutputDevice to PC");
       await this.setProperty(
         C.kEdsPropID_Evf_OutputDevice,
         C.kEdsEvfOutputDevice_PC
       );
 
-      // Step 2: Wait for camera to confirm OutputDevice change
+      // Step 4: Wait for camera to confirm OutputDevice change
       const outputResult = await this.stateSynchronizer.waitForProperty(
         async () => {
           return await this.stateSynchronizer.getPropertyWithRetry(
@@ -291,11 +309,11 @@ export class CameraStateManager {
         });
       }
 
-      // Step 3: Enable EVF Mode
+      // Step 5: Enable EVF Mode
       cameraLogger.debug("CameraStateManager: Enabling EVF Mode");
       await this.setProperty(C.kEdsPropID_Evf_Mode, 1);
 
-      // Step 4: Wait for camera to confirm EVF Mode
+      // Step 6: Wait for camera to confirm EVF Mode
       const modeResult = await this.stateSynchronizer.waitForProperty(
         async () => {
           return await this.stateSynchronizer.getPropertyWithRetry(
@@ -314,7 +332,42 @@ export class CameraStateManager {
         });
       }
 
-      // Step 5: Create and start live view engine
+      // Step 7: Wait for mirror flip (550D needs time for physical transition)
+      cameraLogger.debug("CameraStateManager: Waiting for mirror flip...");
+      await this.sleep(1500);
+
+      // Step 8: Start event pump (critical for receiving frames on Windows)
+      cameraLogger.debug("CameraStateManager: Starting event pump...");
+      this.eventPump = new CameraEventPump(60);
+      this.eventPump.start(sdk);
+
+      // Step 9: Wait for EVF stream to stabilize
+      cameraLogger.debug("CameraStateManager: Waiting for EVF stream stabilization...");
+      await this.sleep(3000);
+
+      // Step 10: Test frame download before marking live view as active
+      cameraLogger.debug("CameraStateManager: Testing EVF stream...");
+      const testFrame = await this.testEvfFrame();
+
+      if (!testFrame) {
+        // Retry once with longer delay
+        cameraLogger.warn("CameraStateManager: First EVF test failed, retrying...");
+        await this.sleep(2000);
+        const retryTest = await this.testEvfFrame();
+
+        if (!retryTest) {
+          // Stop event pump on failure
+          this.eventPump?.stop();
+          this.eventPump = null;
+          
+          throw new LiveViewError(
+            "EVF stream not available after retries. Camera may not support live view with current settings.",
+            { operation: "startLiveView" }
+          );
+        }
+      }
+
+      // Step 11: Create and start live view engine
       this.liveViewEngine = new LiveViewEngine(sdk, cameraRef, {
         targetFps: 30,
         bufferSize: 2,
@@ -327,6 +380,9 @@ export class CameraStateManager {
 
       cameraLogger.info("CameraStateManager: Live view started successfully");
     } catch (error) {
+      // Cleanup on error
+      this.eventPump?.stop();
+      this.eventPump = null;
       await this.handleError(error);
       throw error;
     }
@@ -347,17 +403,23 @@ export class CameraStateManager {
         this.liveViewEngine = null;
       }
 
+      // Step 2: Stop event pump
+      if (this.eventPump) {
+        this.eventPump.stop();
+        this.eventPump = null;
+      }
+
       const sdk = this.sessionManager.getSdk();
       const cameraRef = this.sessionManager.getCameraRef();
 
-      // Step 2: Set Output Device back to TFT
+      // Step 3: Set Output Device back to TFT
       cameraLogger.debug("CameraStateManager: Setting EVF OutputDevice to TFT");
       await this.setProperty(
         C.kEdsPropID_Evf_OutputDevice,
         C.kEdsEvfOutputDevice_TFT
       );
 
-      // Step 3: Wait for confirmation
+      // Step 4: Wait for confirmation
       await this.stateSynchronizer.waitForProperty(
         async () => {
           return await this.stateSynchronizer.getPropertyWithRetry(
@@ -370,11 +432,11 @@ export class CameraStateManager {
         2000
       );
 
-      // Step 4: Disable EVF Mode
+      // Step 5: Disable EVF Mode
       cameraLogger.debug("CameraStateManager: Disabling EVF Mode");
       await this.setProperty(C.kEdsPropID_Evf_Mode, 0);
 
-      // Step 5: Wait for confirmation
+      // Step 6: Wait for confirmation
       await this.stateSynchronizer.waitForProperty(
         async () => {
           return await this.stateSynchronizer.getPropertyWithRetry(
@@ -386,6 +448,13 @@ export class CameraStateManager {
         0,
         3000
       );
+
+      // Step 7: Wait for mirror to flip down
+      await this.sleep(500);
+
+      // Step 8: Unlock UI to exit to shooting mode (critical for 550D)
+      await this.unlockUI();
+      await this.sleep(300);
 
       // Transition back to CONNECTED
       await this.transitionTo("CONNECTED");
@@ -478,10 +547,11 @@ export class CameraStateManager {
           );
         }, timeoutMs);
 
-        // Stop live view engine temporarily
+        // Stop live view engine and event pump temporarily
         if (this.liveViewEngine) {
           await this.liveViewEngine.stop();
         }
+        this.eventPump?.stop();
 
         // Wait for camera to be ready
         const ready = await this.stateSynchronizer.waitForReady(
@@ -512,10 +582,11 @@ export class CameraStateManager {
           clearTimeout(timeoutId);
           this.pendingCapture = null;
 
-          // Restart live view engine
+          // Restart live view engine and event pump
           if (this.liveViewEngine) {
             await this.liveViewEngine.start();
           }
+          this.eventPump?.start(sdk);
 
           await this.transitionTo("LIVEVIEW");
           throw new CameraError(`Shutter command failed: ${shutterErr}`, {
@@ -545,9 +616,12 @@ export class CameraStateManager {
       } catch (error) {
         this.pendingCapture = null;
 
-        // Restart live view engine on error
-        if (this.liveViewEngine) {
-          await this.liveViewEngine.start();
+        // Restart live view engine and event pump on error
+        if (this.sessionManager) {
+          if (this.liveViewEngine) {
+            await this.liveViewEngine.start();
+          }
+          this.eventPump?.start(this.sessionManager.getSdk());
         }
 
         await this.transitionTo("LIVEVIEW");
@@ -726,10 +800,11 @@ export class CameraStateManager {
           metadata,
         });
 
-        // Restart live view engine
+        // Restart live view engine and event pump
         if (this.liveViewEngine) {
           await this.liveViewEngine.start();
         }
+        this.eventPump?.start(sdk);
 
         // Transition back to LIVEVIEW
         await this.transitionTo("LIVEVIEW");
@@ -744,9 +819,12 @@ export class CameraStateManager {
       // Clear pending capture
       this.pendingCapture = null;
 
-      // Restart live view engine on error
+      // Restart live view engine and event pump on error
       if (this.liveViewEngine) {
         await this.liveViewEngine.start();
+      }
+      if (this.sessionManager) {
+        this.eventPump?.start(this.sessionManager.getSdk());
       }
 
       // Transition back to LIVEVIEW
@@ -754,6 +832,117 @@ export class CameraStateManager {
 
       // Reject the promise
       reject(error);
+    }
+  }
+
+  // ============================================================================
+  // Helper Methods
+  // ============================================================================
+
+  private async wakeUpCamera(): Promise<void> {
+    if (!this.sessionManager) return;
+
+    const sdk = this.sessionManager.getSdk();
+    const cameraRef = this.sessionManager.getCameraRef();
+
+    try {
+      // Unlock UI to dismiss any menus
+      sdk.EdsSendStatusCommand(
+        cameraRef,
+        C.kEdsCameraStatusCommand_UIUnLock,
+        0
+      );
+
+      // Trigger half-press to wake up camera
+      sdk.EdsSendCommand(
+        cameraRef,
+        C.kEdsCameraCommand_PressShutterButton,
+        C.kEdsCameraCommand_ShutterButton_Halfway
+      );
+
+      await this.sleep(200);
+
+      // Release shutter button
+      sdk.EdsSendCommand(
+        cameraRef,
+        C.kEdsCameraCommand_PressShutterButton,
+        C.kEdsCameraCommand_ShutterButton_OFF
+      );
+    } catch (error) {
+      cameraLogger.debug("CameraStateManager: Wake up camera failed (non-fatal)", { error });
+    }
+  }
+
+  private async unlockUI(): Promise<void> {
+    if (!this.sessionManager) return;
+
+    const sdk = this.sessionManager.getSdk();
+    const cameraRef = this.sessionManager.getCameraRef();
+
+    try {
+      sdk.EdsSendStatusCommand(
+        cameraRef,
+        C.kEdsCameraStatusCommand_UIUnLock,
+        0
+      );
+    } catch (error) {
+      cameraLogger.debug("CameraStateManager: UI unlock failed (non-fatal)", { error });
+    }
+  }
+
+  private async testEvfFrame(): Promise<boolean> {
+    if (!this.sessionManager) return false;
+
+    const sdk = this.sessionManager.getSdk();
+    const cameraRef = this.sessionManager.getCameraRef();
+
+    let stream: any = null;
+    let evfImage: any = null;
+
+    try {
+      // Create memory stream
+      const streamOut = [null];
+      const streamErr = sdk.EdsCreateMemoryStream(BigInt(0), streamOut);
+      if (streamErr !== C.EDS_ERR_OK) {
+        return false;
+      }
+      stream = streamOut[0];
+
+      // Create EVF image reference
+      const evfOut = [null];
+      const evfErr = sdk.EdsCreateEvfImageRef(stream, evfOut);
+      if (evfErr !== C.EDS_ERR_OK) {
+        return false;
+      }
+      evfImage = evfOut[0];
+
+      // Download the frame
+      const downloadErr = sdk.EdsDownloadEvfImage(cameraRef, evfImage);
+
+      // Success or expected "not ready" error
+      if (downloadErr === C.EDS_ERR_OK || downloadErr === 0x00000041) {
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      return false;
+    } finally {
+      // Cleanup
+      if (evfImage) {
+        try {
+          sdk.EdsRelease(evfImage);
+        } catch {
+          // Ignore
+        }
+      }
+      if (stream) {
+        try {
+          sdk.EdsRelease(stream);
+        } catch {
+          // Ignore
+        }
+      }
     }
   }
 
