@@ -13,11 +13,10 @@ import {
   ExtendedCameraStatusResponse,
 } from "../types";
 import { cameraLogger } from "../logger";
+import { env } from "../../config/env";
 
-const PYTHON_SERVICE_URL =
-  process.env.PYTHON_CAMERA_SERVICE_URL || "http://localhost:8000";
-const PYTHON_SERVICE_WS_URL =
-  process.env.PYTHON_CAMERA_SERVICE_WS_URL || "ws://localhost:8000";
+const PYTHON_SERVICE_URL = env.pythonCameraServiceUrl;
+const PYTHON_SERVICE_WS_URL = env.pythonCameraServiceWsUrl;
 
 export class PythonGPhoto2Provider
   extends EventEmitter

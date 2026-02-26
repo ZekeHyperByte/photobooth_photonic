@@ -48,7 +48,15 @@ export const env: {
   processedPath: string;
   templatesPath: string;
   thumbnailsPath: string;
-  cameraProvider: "edsdk" | "webcam" | "mock";
+  cameraProvider:
+    | "edsdk"
+    | "edsdk-v2"
+    | "gphoto2"
+    | "python-gphoto2"
+    | "webcam"
+    | "mock";
+  pythonCameraServiceUrl: string;
+  pythonCameraServiceWsUrl: string;
   captureTimeoutMs: number;
   captureQueueMode: "queue" | "reject";
   liveViewFps: number;
@@ -92,11 +100,29 @@ export const env: {
   templatesPath: process.env.TEMPLATES_PATH || "./data/templates",
   thumbnailsPath: process.env.THUMBNAILS_PATH || "./data/thumbnails",
 
-  // Camera provider: 'edsdk' | 'webcam' | 'mock'
-  cameraProvider: (process.env.CAMERA_PROVIDER || "edsdk") as
+  // Camera provider: 'edsdk' | 'edsdk-v2' | 'gphoto2' | 'webcam' | 'mock'
+  // Auto-detected based on platform if not specified:
+  // - Linux: gphoto2
+  // - Windows: edsdk-v2
+  // - Other: mock
+  cameraProvider: (process.env.CAMERA_PROVIDER ||
+    (process.platform === "linux"
+      ? "gphoto2"
+      : process.platform === "win32"
+        ? "edsdk-v2"
+        : "mock")) as
     | "edsdk"
+    | "edsdk-v2"
+    | "gphoto2"
+    | "python-gphoto2"
     | "webcam"
     | "mock",
+
+  // Python Camera Service (for gphoto2 provider)
+  pythonCameraServiceUrl:
+    process.env.PYTHON_CAMERA_SERVICE_URL || "http://localhost:8000",
+  pythonCameraServiceWsUrl:
+    process.env.PYTHON_CAMERA_SERVICE_WS_URL || "ws://localhost:8000",
 
   // Capture settings
   captureTimeoutMs: parseInt(process.env.CAPTURE_TIMEOUT_MS || "30000", 10),
@@ -190,6 +216,11 @@ export function validateEnv() {
     warnings.push(
       "Using mock camera provider in production - no real photos will be taken",
     );
+  }
+
+  // Info message for gphoto2 on Linux
+  if (env.cameraProvider === "gphoto2") {
+    console.info("📷 Using gphoto2 provider for Canon camera control on Linux");
   }
 
   if (missing.length > 0) {
