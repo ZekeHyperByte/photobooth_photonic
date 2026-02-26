@@ -342,7 +342,9 @@ export class EdsdkProvider implements CameraProvider {
       await new Promise((resolve) => setTimeout(resolve, 500));
       cameraLogger.debug("EdsdkProvider: Quick Control screen dismissed");
     } catch (error) {
-      cameraLogger.debug("EdsdkProvider: Failed to dismiss Q screen, proceeding anyway...");
+      cameraLogger.debug(
+        "EdsdkProvider: Failed to dismiss Q screen, proceeding anyway...",
+      );
     }
 
     await this.checkStorageStatus();
@@ -361,6 +363,11 @@ export class EdsdkProvider implements CameraProvider {
         sequenceNumber,
       );
       await this.verifyImageIntegrity(imagePath);
+
+      // Post-capture delay: Canon 550D needs time to reset AF/mirror before next operation
+      cameraLogger.debug("EdsdkProvider: Post-capture recovery delay (3s)...");
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      cameraLogger.debug("EdsdkProvider: Post-capture recovery complete");
 
       this.state.captureCount++;
       this.state.lastCaptureAt = new Date().toISOString();
