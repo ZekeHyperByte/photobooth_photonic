@@ -319,27 +319,35 @@ export class EdsdkProvider implements CameraProvider {
     if (this.liveViewActive) {
       await this.stopLiveView();
     } else {
-      // Check if camera is physically in EVF mode (e.g., user pressed the Live View button)
+      // Check if camera is actively streaming live view (not just in transition)
+      // Canon 550D: Only force-disable if both EVF Mode = 1 AND Output Device = PC
+      // This prevents accidentally putting camera in Q menu during mode transitions
       try {
         const evfMode = await this.getPropertyWithRetry(
           C.kEdsPropID_Evf_Mode,
           2,
           200,
         );
-        if (evfMode === 1) {
+        const outputDevice = await this.getPropertyWithRetry(
+          C.kEdsPropID_Evf_OutputDevice,
+          2,
+          200,
+        );
+
+        // Only force-disable if camera is actively streaming to PC
+        // evfMode=1 AND outputDevice=2 (PC) means live view is truly active
+        if (evfMode === 1 && outputDevice === C.kEdsEvfOutputDevice_PC) {
           cameraLogger.info(
-            "EdsdkProvider: Camera physically in Live View, disabling before capture...",
+            "EdsdkProvider: Camera actively streaming live view, disabling before capture...",
           );
-          const disableEvf = Buffer.alloc(4);
-          disableEvf.writeUInt32LE(0);
-          this.sdk.EdsSetPropertyData(
-            this.cameraRef,
-            C.kEdsPropID_Evf_Mode,
-            0,
-            4,
-            disableEvf,
+          // Use stopLiveView for proper shutdown sequence (prevents Q menu on 550D)
+          await this.stopLiveView();
+        } else if (evfMode === 1) {
+          // Camera reports EVF mode but not streaming to PC - just wait for transition
+          cameraLogger.debug(
+            "EdsdkProvider: Camera in EVF mode transition, waiting...",
           );
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       } catch (e) {
         // Ignore errors checking physical EVF state
@@ -1071,6 +1079,20 @@ export class EdsdkProvider implements CameraProvider {
 
       // Additional wait after force attempt
       await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    // Step 6: Unlock UI to ensure camera exits to normal shooting mode
+    // Canon 550D: Without this, camera may enter Q menu instead of shooting mode
+    cameraLogger.debug(
+      "EdsdkProvider: Unlocking UI to exit to shooting mode...",
+    );
+    try {
+      await this.unlockUI();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    } catch (error) {
+      cameraLogger.debug(
+        "EdsdkProvider: UIUnlock during stopLiveView failed, proceeding anyway...",
+      );
     }
 
     // Mark live view as inactive

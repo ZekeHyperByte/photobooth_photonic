@@ -95,7 +95,8 @@ export async function selfTestRoutes(fastify: FastifyInstance) {
             try {
               // Node 19+ cross-platform approach
               const statfs = fs.statfsSync(dataPath);
-              freeSpaceGB = (statfs.bavail * statfs.bsize) / (1024 * 1024 * 1024);
+              freeSpaceGB =
+                (statfs.bavail * statfs.bsize) / (1024 * 1024 * 1024);
             } catch {
               // Fallback if statfsSync fails or is not available
               try {
@@ -155,8 +156,6 @@ export async function selfTestRoutes(fastify: FastifyInstance) {
         if (result.camera.ok) {
           try {
             const cameraService = getCameraService();
-            await cameraService.startPreviewStream();
-
             liveViewStartTime = Date.now();
 
             // Collect frames for 1 second
@@ -279,9 +278,9 @@ export async function selfTestRoutes(fastify: FastifyInstance) {
           summary: allPassed
             ? "All tests passed"
             : `Some tests failed: ${Object.entries(result)
-              .filter(([_, test]) => !test.ok)
-              .map(([name]) => name)
-              .join(", ")}`,
+                .filter(([_, test]) => !test.ok)
+                .map(([name]) => name)
+                .join(", ")}`,
         });
       } catch (error: any) {
         logger.error("Self-test: Unexpected error", { error });
