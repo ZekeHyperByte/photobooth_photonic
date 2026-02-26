@@ -90,6 +90,7 @@ class GPhoto2Backend:
             'frame_count': 0,
             'dropped_frames': 0,
             'last_frame_time': 0.0,
+            'capture_count': 0,
         }
         
         # Mode switching flags
@@ -360,12 +361,12 @@ class GPhoto2Backend:
             
         except Exception as e:
             self._consecutive_errors += 1
-            logger.warning(f"Error capturing preview frame ({self._consecutive_errors}/{self._max_consecutive_errors}): {e}")
+            logger.warning(f"Error capturing preview frame ({self._consecutive_errors}/{self._max_consecutive_errors}): {type(e).__name__}: {e}")
             
             if self._consecutive_errors >= self._max_consecutive_errors:
                 logger.error("Too many consecutive errors, stopping live view")
                 self._liveview_active = False
-                raise RuntimeError("Live view error threshold exceeded")
+                raise RuntimeError(f"Live view error threshold exceeded: {type(e).__name__}: {e}")
             
             return None
     
@@ -442,7 +443,7 @@ class GPhoto2Backend:
             # Get metadata
             metadata = self._get_capture_metadata()
             
-            # Update status
+            # Update capture count
             self._liveview_stats['capture_count'] += 1
             
             logger.info(f"Photo captured successfully: {output_path}")

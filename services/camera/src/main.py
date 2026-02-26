@@ -216,24 +216,31 @@ async def liveview_stream(websocket: WebSocket):
                 # Get frame
                 frame = backend.get_liveview_frame()
                 
-                if frame:
+                if frame and len(frame) > 0:
                     # Send as binary
                     await websocket.send_bytes(frame)
                     frame_count += 1
                     error_count = 0
                 else:
                     # No frame available, brief pause
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.033)  # ~30fps max
                 
             except Exception as e:
                 error_count += 1
-                logger.warning(f"Frame error ({error_count}): {e}")
+                logger.warning(f"Frame error ({error_count}/{max_errors}): {type(e).__name__}: {e}")
                 
-                if error_count > 10:
-                    await websocket.send_json({"error": "Too many frame errors"})
+                # Allow more errors before breaking - camera may be busy
+                max_errors = 50
+                if error_count > max_errors:
+                    logger.error(f"Too many frame errors ({error_count}), closing WebSocket")
+                    try:
+                        await websocket.send_json({"error": f"Too many frame errors ({error_count})"})
+                    except:
+                        pass
                     break
                 
-                await asyncio.sleep(0.1)
+                # Brief pause before retry
+                await asyncio.sleep(0.05)
     
     except WebSocketDisconnect:
         logger.info(f"Live view WebSocket client disconnected. Frames sent: {frame_count}")
