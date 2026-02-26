@@ -556,22 +556,25 @@ export class EdsdkProvider implements CameraProvider {
       );
     }
 
-    // Step 1: Set Output Device to PC (Must be done FIRST on older cameras like 550D)
-    cameraLogger.debug("EdsdkProvider: Setting EVF Output Device to PC...");
+    // Step 1: Push prerequisite properties for older cameras (e.g. 550D)
+    // Sometimes older cameras fail to open the stream if Zoom/AF aren't explicitly configured first
+    cameraLogger.debug("EdsdkProvider: Setting PC Output Device and EVF prerequisites...");
+
+    // Set Output Device to PC FIRST
     const outputDevice = Buffer.alloc(4);
     outputDevice.writeUInt32LE(C.kEdsEvfOutputDevice_PC);
-    const outputErr = this.sdk.EdsSetPropertyData(
-      this.cameraRef,
-      C.kEdsPropID_Evf_OutputDevice,
-      0,
-      4,
-      outputDevice,
-    );
-
+    let outputErr = this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_OutputDevice, 0, 4, outputDevice);
     if (outputErr !== C.EDS_ERR_OK) {
-      // It might be busy, we can still try to proceed
-      cameraLogger.warn(`EdsdkProvider: Failed to set output device: ${C.edsErrorToString(outputErr)}`);
+      cameraLogger.warn(`EdsdkProvider: Initial OutputDevice=PC failed: ${C.edsErrorToString(outputErr)} (will retry later)`);
     }
+
+    // Set Zoom to Fit (1)
+    const zoom = Buffer.alloc(4);
+    zoom.writeUInt32LE(1);
+    this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_Zoom, 0, 4, zoom);
+
+    // Avoid busy state
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Step 2: Set EVF Mode to 1 (Enable)
     cameraLogger.debug("EdsdkProvider: Enabling EVF Mode...");
@@ -617,7 +620,13 @@ export class EdsdkProvider implements CameraProvider {
     cameraLogger.debug("EdsdkProvider: Waiting for mirror flip...");
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // Step 4: Verify EVF mode was actually set
+    // Step 4: Ensure Output Device is PC
+    outputErr = this.sdk.EdsSetPropertyData(this.cameraRef, C.kEdsPropID_Evf_OutputDevice, 0, 4, outputDevice);
+    if (outputErr !== C.EDS_ERR_OK) {
+      cameraLogger.warn(`EdsdkProvider: Secondary OutputDevice=PC failed: ${C.edsErrorToString(outputErr)}`);
+    }
+
+    // Step 5: Verify EVF mode was actually set
     const currentMode = await this.getPropertyWithRetry(
       C.kEdsPropID_Evf_Mode,
       5,
