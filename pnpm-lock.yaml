@@ -161,7 +161,7 @@ importers:
         specifier: ^9.0.1
         version: 9.0.1
       ws:
-        specifier: ^8.16.0
+        specifier: ^8.19.0
         version: 8.19.0
     devDependencies:
       '@types/better-sqlite3':
@@ -177,7 +177,7 @@ importers:
         specifier: ^9.0.7
         version: 9.0.8
       '@types/ws':
-        specifier: ^8.5.10
+        specifier: ^8.18.1
         version: 8.18.1
       '@vitest/coverage-v8':
         specifier: ^1.6.1
