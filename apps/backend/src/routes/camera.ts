@@ -1,6 +1,12 @@
+/**
+ * Camera Routes
+ * Handles camera capture, status, and configuration
+ */
+
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { getCameraService } from "../services/camera-service";
 import { getPreviewStreamManager } from "../services/preview-stream-manager";
+import { getCameraManager } from "../camera/camera-manager";
 import { createLogger } from "@photonic/utils";
 import { HTTP_STATUS } from "@photonic/config";
 import type {
@@ -10,10 +16,21 @@ import type {
 
 const logger = createLogger("camera-routes");
 
-/**
- * Camera Routes
- * Handles camera capture, status, and configuration
- */
+// Helper function for timestamped logging
+function logWithTimestamp(
+  level: "info" | "debug" | "error" | "warn",
+  message: string,
+  meta?: any,
+) {
+  const timestamp = new Date().toISOString();
+  const prefix = `[${timestamp}] [Preview]`;
+  if (meta) {
+    logger[level](`${prefix} ${message}`, meta);
+  } else {
+    logger[level](`${prefix} ${message}`);
+  }
+}
+
 export async function cameraRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/camera/preview
@@ -22,6 +39,9 @@ export async function cameraRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/api/camera/preview",
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const PREVIEW_START_TIMEOUT_MS = 10000; // 10 seconds max
+      const CLEANUP_DELAY_MS = 500; // 500ms cleanup delay
+
       try {
         const cameraService = getCameraService();
 
@@ -29,6 +49,35 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           await cameraService.initialize();
         }
 
+        const previewManager = getPreviewStreamManager();
+
+        // CRITICAL FIX: Check for stale state from previous session
+        // If there are existing clients, clean them up first
+        if (previewManager.clientCount > 0) {
+          logWithTimestamp(
+            "info",
+            `Detected ${previewManager.clientCount} stale clients, cleaning up...`,
+          );
+
+          await previewManager.stopAll();
+          logWithTimestamp("debug", "Preview manager stopped");
+
+          await cameraService.forceStopPreview().catch((err) => {
+            logWithTimestamp("debug", "Force stop error (expected)", {
+              error: err.message,
+            });
+          });
+          logWithTimestamp("debug", "Camera preview force-stopped");
+
+          logWithTimestamp(
+            "info",
+            `Waiting ${CLEANUP_DELAY_MS}ms for cleanup...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, CLEANUP_DELAY_MS));
+          logWithTimestamp("info", "Cleanup complete, starting fresh preview");
+        }
+
+        // Set up response headers
         const res = reply.raw;
         res.writeHead(200, {
           "Content-Type": "multipart/x-mixed-replace; boundary=frame",
@@ -39,17 +88,53 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           Expires: "0",
         });
 
-        const previewManager = getPreviewStreamManager();
+        // Add client
+        const startTime = Date.now();
         const clientId = previewManager.addClient(res);
+        logWithTimestamp("info", `New client added: ${clientId}`);
 
+        // Set up timeout check
+        let timeoutOccurred = false;
+        const checkTimeout = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          if (elapsed > PREVIEW_START_TIMEOUT_MS && !timeoutOccurred) {
+            timeoutOccurred = true;
+            logWithTimestamp(
+              "error",
+              `Timeout! Preview didn't start within ${PREVIEW_START_TIMEOUT_MS}ms`,
+            );
+
+            // Remove client and clean up
+            previewManager.removeClient(clientId);
+            clearInterval(checkTimeout);
+
+            // Try to send error response if connection is still open
+            try {
+              if (!res.writableEnded) {
+                res.write(
+                  `--frame\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ error: "Preview timeout", message: "Preview failed to start within 10 seconds" })}\r\n`,
+                );
+                res.end();
+              }
+            } catch (e) {
+              // Connection already closed
+            }
+          }
+        }, 1000);
+
+        // Clean up when client disconnects
         request.raw.on("close", () => {
+          clearInterval(checkTimeout);
           previewManager.removeClient(clientId);
+          logWithTimestamp("info", `Client ${clientId} disconnected`);
         });
 
         // Prevent Fastify from sending its own response
         reply.hijack();
       } catch (error: any) {
-        logger.error("Preview stream failed:", error);
+        logWithTimestamp("error", "Preview stream failed", {
+          error: error.message,
+        });
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           error: "Preview Failed",
@@ -88,7 +173,6 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         }
 
         // Stop preview stream before capture
-        // stopAll() awaits the loop exit which includes exiting LiveView
         const previewManager = getPreviewStreamManager();
         if (previewManager.clientCount > 0) {
           logger.info("Stopping preview stream for capture...");
@@ -226,15 +310,38 @@ export async function cameraRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /api/camera/mode
-   * Get current camera mode
+   * Get current camera mode based on actual camera provider
    */
   fastify.get(
     "/api/camera/mode",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        // Derive mode from provider type — edsdk is DSLR mode
-        const providerType = process.env.CAMERA_PROVIDER || "mock";
-        const mode = providerType === "edsdk" ? "dslr" : "webcam";
+        const cameraManager = getCameraManager();
+        const activeCameraId = cameraManager.getActiveCameraId();
+
+        if (!activeCameraId) {
+          return reply.code(HTTP_STATUS.OK).send({
+            success: true,
+            data: { mode: "mock" },
+          });
+        }
+
+        // Extract provider type from camera ID (format: "providerType-timestamp")
+        const providerType = activeCameraId.split("-")[0];
+
+        // Map provider types to modes
+        const mode = [
+          "edsdk",
+          "edsdk-v2",
+          "gphoto2",
+          "python-gphoto2",
+        ].includes(providerType)
+          ? "dslr"
+          : providerType === "webcam"
+            ? "webcam"
+            : "mock";
+
+        logger.info("Camera mode detected", { providerType, mode });
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
@@ -262,12 +369,9 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         const cameraService = getCameraService();
 
         if (!cameraService.isConnected()) {
-          return reply.code(HTTP_STATUS.OK).send({
-            success: true,
-            data: {
-              connected: false,
-              message: "Camera not connected",
-            },
+          return reply.code(HTTP_STATUS.SERVICE_UNAVAILABLE).send({
+            success: false,
+            message: "Camera not connected",
           });
         }
 
@@ -278,11 +382,10 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
           data: {
-            connected: true,
             mode,
             availableConfigs,
             liveViewConfigName,
-            configCount: availableConfigs.length,
+            connected: cameraService.isConnected(),
           },
         });
       } catch (error: any) {

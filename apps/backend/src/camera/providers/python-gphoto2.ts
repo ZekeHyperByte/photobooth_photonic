@@ -30,6 +30,10 @@ export class PythonGPhoto2Provider
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
 
+  // Frame buffer for pull model (getLiveViewFrame)
+  private latestFrame: Buffer | null = null;
+  private frameLock: boolean = false;
+
   async initialize(): Promise<void> {
     cameraLogger.info("PythonGPhoto2Provider: Initializing");
 
@@ -183,9 +187,20 @@ export class PythonGPhoto2Provider
   }
 
   async getLiveViewFrame(): Promise<Buffer> {
-    // This is handled via WebSocket in the background
-    // Return empty buffer - actual frames go to callbacks
-    return Buffer.alloc(0);
+    // Wait for frame lock
+    while (this.frameLock) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    this.frameLock = true;
+    try {
+      // Return latest frame from buffer, or empty if none available
+      return this.latestFrame || Buffer.alloc(0);
+    } finally {
+      this.frameLock = false;
+      // Clear buffer after reading (optional - depends on desired behavior)
+      // this.latestFrame = null;
+    }
   }
 
   isLiveViewActive(): boolean {
@@ -302,7 +317,10 @@ export class PythonGPhoto2Provider
       });
 
       this.ws.on("message", (data: Buffer) => {
-        // Distribute frame to all callbacks
+        // Store latest frame for pull model (getLiveViewFrame)
+        this.latestFrame = data;
+
+        // Also distribute to callbacks for push model support
         for (const callback of this.frameCallbacks) {
           try {
             callback(data);
