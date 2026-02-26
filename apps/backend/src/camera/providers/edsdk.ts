@@ -745,11 +745,11 @@ export class EdsdkProvider implements CameraProvider {
     }
 
     // Step 5: Wait for EVF stream to be ready on the camera before testing
-    // Sometimes the stream isn't immediately available after routing to PC
+    // Canon 550D needs 3+ seconds for stream to stabilize after mode transition
     cameraLogger.debug(
       "EdsdkProvider: Waiting for EVF stream initialization...",
     );
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     // Step 6: Test frame download before marking live view as active
     cameraLogger.debug("EdsdkProvider: Testing EVF stream...");
@@ -1139,7 +1139,42 @@ export class EdsdkProvider implements CameraProvider {
     this.frameConsumerReady = false;
 
     try {
-      return await this._getLiveViewFrameInternal();
+      // Retry logic for Canon 550D - stream may not be stable immediately
+      let lastError: Error | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          return await this._getLiveViewFrameInternal();
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+
+          // Only retry on specific transient errors
+          if (
+            error instanceof LiveViewError &&
+            (error.message?.includes("not active") ||
+              error.message?.includes("not available") ||
+              error.message?.includes("Stream not open"))
+          ) {
+            if (attempt < 3) {
+              cameraLogger.debug(
+                `EdsdkProvider: Frame fetch attempt ${attempt} failed, retrying...`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              continue;
+            }
+          }
+
+          // Non-retryable error - throw immediately
+          throw error;
+        }
+      }
+
+      // All retries failed
+      throw (
+        lastError ||
+        new LiveViewError("Frame fetch failed after retries", {
+          operation: "getLiveViewFrame",
+        })
+      );
     } finally {
       this.frameConsumerReady = true;
     }
@@ -1179,24 +1214,19 @@ export class EdsdkProvider implements CameraProvider {
         }
 
         // Handle stream/object errors - EVF not available or not ready
+        // Don't disable live view here - let retry logic in getLiveViewFrame handle it
         if (
           err === C.EDS_ERR_STREAM_NOT_OPEN ||
           err === C.EDS_ERR_OBJECT_NOTREADY
         ) {
-          this.evfErrorCount++;
-          const now = Date.now();
-          if (now - this.lastEvfErrorLogTime > 5000) {
-            cameraLogger.warn(
-              `EdsdkProvider: EVF stream not available (Canon 550D limitation with SDK v${this.state.sdkVersion}). ` +
-                `Error occurred ${this.evfErrorCount} times. Live view disabled.`,
-              { error: C.edsErrorToString(err), code: `0x${err.toString(16)}` },
-            );
-            this.lastEvfErrorLogTime = now;
-            this.evfErrorCount = 0;
-            // Disable live view to prevent further errors
-            this.liveViewActive = false;
-          }
-          return Buffer.alloc(0);
+          cameraLogger.debug(
+            `EdsdkProvider: EVF stream not ready (attempt will retry)`,
+          );
+          // Throw error to trigger retry logic instead of disabling live view
+          throw new LiveViewError(
+            `EVF stream not available: ${C.edsErrorToString(err)}`,
+            { operation: "getLiveViewFrame" },
+          );
         }
 
         if (err === C.EDS_ERR_COMM_USB_BUS_ERR) {

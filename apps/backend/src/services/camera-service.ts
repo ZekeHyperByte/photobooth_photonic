@@ -53,8 +53,12 @@ export class CameraService {
           platform: process.platform,
         });
       } catch (error) {
-        logger.error("CameraManager not initialized, camera service will not work");
-        throw new Error("CameraManager must be initialized before CameraService");
+        logger.error(
+          "CameraManager not initialized, camera service will not work",
+        );
+        throw new Error(
+          "CameraManager must be initialized before CameraService",
+        );
       }
     }
   }
@@ -97,6 +101,10 @@ export class CameraService {
 
     // Start live view
     await this.provider.startLiveView();
+
+    // Additional stabilization delay for Canon 550D
+    // Camera needs time to fully initialize stream after startLiveView completes
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Create MJPEG stream from individual frames
     const frameGenerator = async function* (provider: CameraProvider) {
@@ -145,7 +153,7 @@ export class CameraService {
     stream.on("error", (err) => {
       this._isStreaming = false;
       cameraLogger.error("Stream error:", err);
-      this.provider.stopLiveView().catch(() => { });
+      this.provider.stopLiveView().catch(() => {});
     });
 
     return stream;
@@ -243,14 +251,16 @@ export class CameraService {
       if (wasStreaming) {
         logger.info("Restarting preview stream after error...");
         await new Promise((resolve) => setTimeout(resolve, 500));
-        await this.startPreviewStream().catch(() => { });
+        await this.startPreviewStream().catch(() => {});
       }
 
       throw error;
     }
   }
 
-  async getStatus(options?: { includeSettings?: boolean }): Promise<CameraStatusResponse> {
+  async getStatus(options?: {
+    includeSettings?: boolean;
+  }): Promise<CameraStatusResponse> {
     if (!this.isInitialized) {
       return {
         connected: false,
@@ -385,7 +395,7 @@ export function getCameraService(provider?: CameraProvider): CameraService {
 
 export function resetCameraService(): void {
   if (cameraService) {
-    cameraService.disconnect().catch(() => { });
+    cameraService.disconnect().catch(() => {});
     cameraService = null;
   }
 }
