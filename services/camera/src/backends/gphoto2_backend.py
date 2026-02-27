@@ -40,6 +40,10 @@ class CameraConfig:
     disable_viewfinder_before_capture: bool = True
     canon_eosmoviemode: bool = False
     
+    # Focus settings
+    # Set to True to disable autofocus (use manual focus)
+    disable_autofocus: bool = True
+    
     # Performance tuning
     frame_rate_cap: int = 20
     capture_timeout_ms: int = 5000
@@ -260,6 +264,14 @@ class GPhoto2Backend:
             
             if self.config.shutter_speed_liveview:
                 self._set_config("shutterspeed", self.config.shutter_speed_liveview)
+            
+            # Disable autofocus if configured
+            if self.config.disable_autofocus:
+                try:
+                    self._set_config("autofocusmode", "Manual")
+                    logger.info("Autofocus disabled (Manual mode)")
+                except Exception as e:
+                    logger.warning(f"Could not disable autofocus: {e}")
             
             # Enable viewfinder
             self._set_config("viewfinder", 1)
