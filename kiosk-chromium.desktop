@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Photonic Kiosk
+Comment=Launch Photonic Photo Booth in Kiosk Mode
+Exec=/opt/photonic/kiosk-chromium.sh
+Type=Application
+Terminal=false
+Icon=camera
+Categories=Photography;
+StartupNotify=true
