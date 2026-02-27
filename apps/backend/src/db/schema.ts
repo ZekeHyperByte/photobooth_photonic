@@ -152,6 +152,9 @@ export const photos = sqliteTable("photos", {
     .notNull()
     .references(() => sessions.id),
   sequenceNumber: integer("sequence_number").notNull(),
+  version: integer("version").notNull().default(1), // Version number for retakes (v1, v2, v3...)
+  isRetake: integer("is_retake", { mode: "boolean" }).notNull().default(false),
+  retakeOfId: text("retake_of_id"), // Reference to parent photo (self-relation defined below)
   originalPath: text("original_path").notNull(),
   processedPath: text("processed_path"),
   templateId: text("template_id").references(() => templates.id),
@@ -325,6 +328,14 @@ export const photosRelations = relations(photos, ({ one, many }) => ({
   session: one(sessions, {
     fields: [photos.sessionId],
     references: [sessions.id],
+  }),
+  parentPhoto: one(photos, {
+    fields: [photos.retakeOfId],
+    references: [photos.id],
+    relationName: "retakes",
+  }),
+  retakes: many(photos, {
+    relationName: "retakes",
   }),
   printQueue: many(printQueue),
   whatsappDeliveries: many(whatsappDeliveries),

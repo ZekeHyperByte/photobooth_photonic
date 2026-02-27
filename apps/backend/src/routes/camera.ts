@@ -95,9 +95,14 @@ export async function cameraRoutes(fastify: FastifyInstance) {
 
         // Set up timeout check
         let timeoutOccurred = false;
+        let firstFrameReceived = false;
         const checkTimeout = setInterval(() => {
           const elapsed = Date.now() - startTime;
-          if (elapsed > PREVIEW_START_TIMEOUT_MS && !timeoutOccurred) {
+          if (
+            elapsed > PREVIEW_START_TIMEOUT_MS &&
+            !timeoutOccurred &&
+            !firstFrameReceived
+          ) {
             timeoutOccurred = true;
             logWithTimestamp(
               "error",
@@ -122,9 +127,23 @@ export async function cameraRoutes(fastify: FastifyInstance) {
           }
         }, 1000);
 
+        // CRITICAL FIX: Listen for first frame event to clear timeout
+        // This prevents the 10-second timeout from closing an active stream
+        const onFirstFrame = () => {
+          if (!firstFrameReceived) {
+            firstFrameReceived = true;
+            logWithTimestamp(
+              "info",
+              `First frame received from preview manager, clearing timeout for client ${clientId}`,
+            );
+          }
+        };
+        previewManager.once("firstFrame", onFirstFrame);
+
         // Clean up when client disconnects
         request.raw.on("close", () => {
           clearInterval(checkTimeout);
+          previewManager.removeListener("firstFrame", onFirstFrame);
           previewManager.removeClient(clientId);
           logWithTimestamp("info", `Client ${clientId} disconnected`);
         });
@@ -327,7 +346,12 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         }
 
         // Extract provider type from camera ID (format: "providerType-timestamp")
-        const providerType = activeCameraId.split("-")[0];
+        // Handle multi-part provider names like "python-gphoto2-1234567890"
+        const parts = activeCameraId.split("-");
+        const providerType =
+          parts.length > 2 && parts[0] === "python" && parts[1] === "gphoto2"
+            ? "python-gphoto2"
+            : parts[0];
 
         // Map provider types to modes
         const mode = [

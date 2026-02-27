@@ -9,6 +9,7 @@ This guide covers all changes made to the camera system in this update.
 - **Deleted Files**: 5 (Pascal bindings)
 - **Breaking Changes**: Environment variables
 - **New Features**: Event pump, watchdog, mutex, health endpoint, session persistence
+- **Platform Support**: Added Linux support via gphoto2 provider
 
 ---
 
@@ -23,17 +24,17 @@ This guide covers all changes made to the camera system in this update.
 
 ### New Variables
 
-| Variable             | Values                    | Default             | Description      |
-| -------------------- | ------------------------- | ------------------- | ---------------- |
-| `CAMERA_PROVIDER`    | `edsdk`, `webcam`, `mock` | `edsdk`             | Camera type      |
-| `CAPTURE_TIMEOUT_MS` | Number                    | `30000`             | Capture timeout  |
-| `CAPTURE_QUEUE_MODE` | `queue`, `reject`         | `reject`            | Mutex mode       |
-| `LIVEVIEW_FPS`       | Number                    | `24`                | Target FPS       |
-| `LIVEVIEW_TRANSPORT` | `ipc`, `http`             | `http`              | Transport mode   |
-| `PROCESSED_PATH`     | Path                      | `./data/processed`  | Processed photos |
-| `TEMPLATES_PATH`     | Path                      | `./data/templates`  | Templates dir    |
-| `THUMBNAILS_PATH`    | Path                      | `./data/thumbnails` | Thumbnails dir   |
-| `MOCK_FAILURE_MODE`  | See below                 | `none`              | Test mode        |
+| Variable             | Values                                           | Default                   | Description                                           |
+| -------------------- | ------------------------------------------------ | ------------------------- | ----------------------------------------------------- |
+| `CAMERA_PROVIDER`    | `edsdk`, `edsdk-v2`, `gphoto2`, `webcam`, `mock` | Auto-detected by platform | Camera type (gphoto2 for Linux, edsdk-v2 for Windows) |
+| `CAPTURE_TIMEOUT_MS` | Number                                           | `30000`                   | Capture timeout                                       |
+| `CAPTURE_QUEUE_MODE` | `queue`, `reject`                                | `reject`                  | Mutex mode                                            |
+| `LIVEVIEW_FPS`       | Number                                           | `24`                      | Target FPS                                            |
+| `LIVEVIEW_TRANSPORT` | `ipc`, `http`                                    | `http`                    | Transport mode                                        |
+| `PROCESSED_PATH`     | Path                                             | `./data/processed`        | Processed photos                                      |
+| `TEMPLATES_PATH`     | Path                                             | `./data/templates`        | Templates dir                                         |
+| `THUMBNAILS_PATH`    | Path                                             | `./data/thumbnails`       | Thumbnails dir                                        |
+| `MOCK_FAILURE_MODE`  | See below                                        | `none`                    | Test mode                                             |
 
 ### Migration Steps
 
@@ -371,6 +372,50 @@ CAPTURE_TIMEOUT_MS=45000  # 45 seconds
 ```env
 CAPTURE_QUEUE_MODE=queue  # Instead of 'reject'
 ```
+
+---
+
+## Linux Migration (New)
+
+### Migrating from Windows to Linux
+
+If you're switching from Windows/EDSDK to Linux/gphoto2:
+
+1. **Install gphoto2**:
+
+```bash
+sudo apt-get install gphoto2 libgphoto2-dev
+```
+
+2. **Setup USB permissions**:
+
+```bash
+sudo tee /etc/udev/rules.d/99-canon-camera.rules > /dev/null <<EOF
+SUBSYSTEM=="usb", ATTR{idVendor}=="04a9", GROUP="plugdev", MODE="0666"
+EOF
+sudo udevadm control --reload-rules
+sudo usermod -a -G plugdev $USER
+# Log out and back in
+```
+
+3. **Update .env**:
+
+```env
+CAMERA_PROVIDER=gphoto2  # Auto-detected on Linux, but can be explicit
+```
+
+4. **No code changes needed** - The factory automatically selects gphoto2 on Linux
+
+### Platform Differences
+
+| Feature        | Windows/EDSDK | Linux/gphoto2             |
+| -------------- | ------------- | ------------------------- |
+| Live View FPS  | 24 fps        | 5-10 fps (CLI limitation) |
+| Capture Speed  | ~1.5s         | ~1.5-2s                   |
+| Error Messages | Cryptic codes | Clear text                |
+| Development    | Windows VM    | Native Linux              |
+
+See `docs/GPHOTO2-LINUX-SETUP.md` for complete setup instructions.
 
 ---
 

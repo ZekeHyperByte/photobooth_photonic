@@ -22,7 +22,7 @@ Photonic is a production-ready photo booth system designed for commercial deploy
 ### Key Differentiators
 
 - **Code-Based Access**: Cashier-generated codes eliminate payment friction at entry
-- **Multi-Modal Camera**: Supports Canon DSLR (Windows), webcam, or mock mode for development
+- **Multi-Modal Camera**: Supports Canon DSLR (Windows/Linux), webcam, or mock mode for development
 - **Integrated Payment**: QRIS payment via Midtrans with real-time status updates
 - **Multi-Channel Delivery**: Print, WhatsApp (Fonnte/Wablas), and digital download
 - **Visual Template Designer**: Drag-and-drop frame creation with Konva.js
@@ -87,8 +87,10 @@ Photonic is a production-ready photo booth system designed for commercial deploy
 
 - **Node.js** 18+ LTS
 - **pnpm** 8+ (`npm install -g pnpm@8`)
-- **Windows 10/11** (production or development)
-- **Canon DSLR** (optional - mock mode available)
+- **Operating System**:
+  - Windows 10/11 (Canon DSLR via EDSDK)
+  - Linux Ubuntu 20.04+ / Debian 11+ (Canon DSLR via gphoto2)
+- **Canon DSLR** (optional - mock mode available for development)
 
 ### One-Command Setup
 
@@ -511,19 +513,20 @@ sc query PhotonicPhotobooth
 
 ## Technology Stack
 
-| Layer                | Technology           | Purpose                     |
-| -------------------- | -------------------- | --------------------------- |
-| **Backend**          | Fastify              | HTTP API server             |
-| **Database**         | SQLite + Drizzle ORM | Data persistence            |
-| **Image Processing** | Sharp                | Photo editing & compositing |
-| **Camera (Windows)** | Canon EDSDK          | Canon DSLR control          |
-| **Payment**          | Midtrans SDK         | QRIS payments               |
-| **WhatsApp**         | Fonnte/Wablas API    | Photo delivery              |
-| **Frontend**         | Electron + React     | Kiosk application           |
-| **State Management** | Zustand              | Client-side state           |
-| **Styling**          | TailwindCSS          | UI styling                  |
-| **Build Tool**       | Vite                 | Development & bundling      |
-| **Monorepo**         | pnpm + Turborepo     | Package management          |
+| Layer                | Technology           | Purpose                      |
+| -------------------- | -------------------- | ---------------------------- |
+| **Backend**          | Fastify              | HTTP API server              |
+| **Database**         | SQLite + Drizzle ORM | Data persistence             |
+| **Image Processing** | Sharp                | Photo editing & compositing  |
+| **Camera (Windows)** | Canon EDSDK          | Canon DSLR control (Windows) |
+| **Camera (Linux)**   | gphoto2              | Canon DSLR control (Linux)   |
+| **Payment**          | Midtrans SDK         | QRIS payments                |
+| **WhatsApp**         | Fonnte/Wablas API    | Photo delivery               |
+| **Frontend**         | Electron + React     | Kiosk application            |
+| **State Management** | Zustand              | Client-side state            |
+| **Styling**          | TailwindCSS          | UI styling                   |
+| **Build Tool**       | Vite                 | Development & bundling       |
+| **Monorepo**         | pnpm + Turborepo     | Package management           |
 
 ---
 

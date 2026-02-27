@@ -262,6 +262,41 @@ export class SessionPersistenceService {
       .set(updates)
       .where(eq(sessions.id, sessionId))
       .run();
+
+    // Trigger cleanup of old photo versions when session completes
+    if (status === "completed") {
+      try {
+        const { getCleanupService } = await import("./cleanup-service");
+        const cleanupService = getCleanupService();
+
+        // Run cleanup asynchronously (don't block session completion)
+        cleanupService.cleanupSession(sessionId).then((result) => {
+          if (result.success) {
+            logger.info(
+              `SessionPersistence: Cleanup completed for session ${sessionId}`,
+              {
+                deletedCount: result.deletedCount,
+              },
+            );
+          } else {
+            logger.warn(
+              `SessionPersistence: Cleanup had errors for session ${sessionId}`,
+              {
+                errors: result.errors,
+              },
+            );
+          }
+        });
+      } catch (error) {
+        // Log but don't fail session completion if cleanup fails
+        logger.error(
+          `SessionPersistence: Failed to trigger cleanup for session ${sessionId}`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
+    }
   }
 
   /**

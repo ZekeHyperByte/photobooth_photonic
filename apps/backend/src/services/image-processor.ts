@@ -1,17 +1,17 @@
-import sharp from 'sharp';
-import path from 'path';
-import fs from 'fs/promises';
-import { nanoid } from 'nanoid';
-import { db } from '../db';
-import { photos, templates, filters, sessions } from '../db/schema';
-import { eq, asc, and, lte } from 'drizzle-orm';
-import { logger } from '@photonic/utils';
+import sharp from "sharp";
+import path from "path";
+import fs from "fs/promises";
+import { nanoid } from "nanoid";
+import { db } from "../db";
+import { photos, templates, filters, sessions } from "../db/schema";
+import { eq, asc, and, lte } from "drizzle-orm";
+import { logger } from "@photonic/utils";
 import type {
   FilterConfig,
   TemplatePosition,
   ProcessPhotoRequest,
-} from '@photonic/types';
-import { getHardcodedPositions } from './template-positions';
+} from "@photonic/types";
+import { getHardcodedPositions } from "./template-positions";
 
 // Limit Sharp concurrency to prevent CPU/memory exhaustion on low-end hardware
 // Default Sharp concurrency is equal to number of CPU cores, which can overwhelm slow systems
@@ -20,9 +20,11 @@ sharp.concurrency(2);
 /**
  * Safely parse positionData which may be stored as JSON string
  */
-function parsePositionData(positionData: unknown): Record<string, unknown> | null {
+function parsePositionData(
+  positionData: unknown,
+): Record<string, unknown> | null {
   if (!positionData) return null;
-  if (typeof positionData === 'string') {
+  if (typeof positionData === "string") {
     try {
       return JSON.parse(positionData);
     } catch {
@@ -42,12 +44,12 @@ export class ImageProcessorService {
   private processedDir: string;
 
   constructor() {
-    this.dataDir = path.join(process.cwd(), 'data');
-    this.photosDir = path.join(this.dataDir, 'photos');
-    this.processedDir = path.join(this.dataDir, 'processed');
+    this.dataDir = path.join(process.cwd(), "data");
+    this.photosDir = path.join(this.dataDir, "photos");
+    this.processedDir = path.join(this.dataDir, "processed");
 
     this.initDirectories();
-    logger.info('ImageProcessorService initialized');
+    logger.info("ImageProcessorService initialized");
   }
 
   /**
@@ -58,9 +60,9 @@ export class ImageProcessorService {
       await fs.mkdir(this.dataDir, { recursive: true });
       await fs.mkdir(this.photosDir, { recursive: true });
       await fs.mkdir(this.processedDir, { recursive: true });
-      logger.info('Image directories initialized');
+      logger.info("Image directories initialized");
     } catch (error) {
-      logger.error('Failed to initialize directories', {
+      logger.error("Failed to initialize directories", {
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -71,10 +73,10 @@ export class ImageProcessorService {
    */
   async processPhoto(
     photoId: string,
-    request: ProcessPhotoRequest
+    request: ProcessPhotoRequest,
   ): Promise<string> {
     try {
-      logger.info('Processing photo', { photoId, request });
+      logger.info("Processing photo", { photoId, request });
 
       // Get photo details
       const photo = await db.query.photos.findFirst({
@@ -82,14 +84,14 @@ export class ImageProcessorService {
       });
 
       if (!photo) {
-        throw new Error('Photo not found');
+        throw new Error("Photo not found");
       }
 
       // Load the original photo
       let image = sharp(photo.originalPath);
       const metadata = await image.metadata();
 
-      logger.info('Photo metadata', {
+      logger.info("Photo metadata", {
         width: metadata.width,
         height: metadata.height,
         format: metadata.format,
@@ -102,8 +104,11 @@ export class ImageProcessorService {
         });
 
         if (filter) {
-          logger.info('Applying filter', { filterId: request.filterId });
-          image = await this.applyFilter(image, filter.filterConfig as FilterConfig);
+          logger.info("Applying filter", { filterId: request.filterId });
+          image = await this.applyFilter(
+            image,
+            filter.filterConfig as FilterConfig,
+          );
         }
       }
 
@@ -114,7 +119,7 @@ export class ImageProcessorService {
         });
 
         if (template) {
-          logger.info('Applying template', {
+          logger.info("Applying template", {
             templateId: request.templateId,
             type: template.templateType,
           });
@@ -126,7 +131,7 @@ export class ImageProcessorService {
             let singlePosition: TemplatePosition;
 
             // Check if it's multi-zone or single position
-            if ('photoZones' in posData) {
+            if ("photoZones" in posData) {
               // Multi-zone: use first zone for now
               singlePosition = (posData.photoZones as TemplatePosition[])[0];
             } else {
@@ -135,32 +140,39 @@ export class ImageProcessorService {
             }
 
             pixelPosition = {
-              x: Math.round((singlePosition.x / 100) * (metadata.width || 1920)),
-              y: Math.round((singlePosition.y / 100) * (metadata.height || 1080)),
-              width: Math.round((singlePosition.width / 100) * (metadata.width || 1920)),
-              height: Math.round((singlePosition.height / 100) * (metadata.height || 1080)),
+              x: Math.round(
+                (singlePosition.x / 100) * (metadata.width || 1920),
+              ),
+              y: Math.round(
+                (singlePosition.y / 100) * (metadata.height || 1080),
+              ),
+              width: Math.round(
+                (singlePosition.width / 100) * (metadata.width || 1920),
+              ),
+              height: Math.round(
+                (singlePosition.height / 100) * (metadata.height || 1080),
+              ),
             };
           }
 
           image = await this.applyTemplate(
             image,
             template.filePath,
-            template.templateType as 'overlay' | 'frame' | 'background',
-            pixelPosition
+            template.templateType as "overlay" | "frame" | "background",
+            pixelPosition,
           );
         }
       }
 
-      // Generate processed filename
-      const processedFilename = `processed-${nanoid()}.jpg`;
+      // Generate versioned processed filename
+      const version = photo.version || 1;
+      const processedFilename = `photo-${photoId}-v${version}-processed.jpg`;
       const processedPath = path.join(this.processedDir, processedFilename);
 
       // Save processed image
-      await image
-        .jpeg({ quality: 90, mozjpeg: true })
-        .toFile(processedPath);
+      await image.jpeg({ quality: 90, mozjpeg: true }).toFile(processedPath);
 
-      logger.info('Photo processed successfully', {
+      logger.info("Photo processed successfully", {
         photoId,
         processedPath,
       });
@@ -177,7 +189,7 @@ export class ImageProcessorService {
 
       return processedPath;
     } catch (error) {
-      logger.error('Failed to process photo', {
+      logger.error("Failed to process photo", {
         error: error instanceof Error ? error.message : String(error),
         photoId,
       });
@@ -190,7 +202,7 @@ export class ImageProcessorService {
    */
   private async applyFilter(
     image: sharp.Sharp,
-    filterConfig: FilterConfig
+    filterConfig: FilterConfig,
   ): Promise<sharp.Sharp> {
     try {
       // Apply brightness
@@ -233,10 +245,10 @@ export class ImageProcessorService {
         image = image.tint({ r: 112, g: 66, b: 20 });
       }
 
-      logger.info('Filter applied', { filterConfig });
+      logger.info("Filter applied", { filterConfig });
       return image;
     } catch (error) {
-      logger.error('Failed to apply filter', {
+      logger.error("Failed to apply filter", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -249,24 +261,25 @@ export class ImageProcessorService {
   private async applyTemplate(
     image: sharp.Sharp,
     templatePath: string,
-    templateType: 'overlay' | 'frame' | 'background',
-    positionData: TemplatePosition | null
+    templateType: "overlay" | "frame" | "background",
+    positionData: TemplatePosition | null,
   ): Promise<sharp.Sharp> {
     try {
       const metadata = await image.metadata();
       const width = metadata.width || 1920;
       const height = metadata.height || 1080;
 
-      if (templateType === 'background') {
+      if (templateType === "background") {
         // Template as background, photo on top
-        const templateImage = sharp(templatePath)
-          .resize(width, height, { fit: 'cover' });
+        const templateImage = sharp(templatePath).resize(width, height, {
+          fit: "cover",
+        });
 
         // Resize photo to fit the designated zone if position data specifies dimensions
         let photoBuffer: Buffer;
         if (positionData && positionData.width && positionData.height) {
           photoBuffer = await image
-            .resize(positionData.width, positionData.height, { fit: 'cover' })
+            .resize(positionData.width, positionData.height, { fit: "cover" })
             .toBuffer();
         } else {
           photoBuffer = await image.toBuffer();
@@ -275,23 +288,26 @@ export class ImageProcessorService {
         return sharp(await templateImage.toBuffer()).composite([
           {
             input: photoBuffer,
-            blend: 'over',
+            blend: "over",
             ...(positionData && {
               left: positionData.x,
               top: positionData.y,
             }),
           },
         ]);
-      } else if (templateType === 'overlay' || templateType === 'frame') {
+      } else if (templateType === "overlay" || templateType === "frame") {
         // Photo as background, template on top
         const templateBuffer = await sharp(templatePath)
-          .resize(width, height, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+          .resize(width, height, {
+            fit: "contain",
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          })
           .toBuffer();
 
         return image.composite([
           {
             input: templateBuffer,
-            blend: 'over',
+            blend: "over",
             ...(positionData && {
               left: positionData.x,
               top: positionData.y,
@@ -302,7 +318,7 @@ export class ImageProcessorService {
 
       return image;
     } catch (error) {
-      logger.error('Failed to apply template', {
+      logger.error("Failed to apply template", {
         error: error instanceof Error ? error.message : String(error),
         templateType,
       });
@@ -313,7 +329,9 @@ export class ImageProcessorService {
   /**
    * Get image metadata (dimensions, format, etc.)
    */
-  async getImageMetadata(imagePath: string): Promise<{ width: number; height: number; format?: string } | null> {
+  async getImageMetadata(
+    imagePath: string,
+  ): Promise<{ width: number; height: number; format?: string } | null> {
     try {
       const metadata = await sharp(imagePath).metadata();
       return {
@@ -322,7 +340,7 @@ export class ImageProcessorService {
         format: metadata.format,
       };
     } catch (error) {
-      logger.error('Failed to get image metadata', {
+      logger.error("Failed to get image metadata", {
         error: error instanceof Error ? error.message : String(error),
         imagePath,
       });
@@ -337,20 +355,20 @@ export class ImageProcessorService {
     inputPath: string,
     outputPath: string,
     maxWidth = 1920,
-    maxHeight = 1080
+    maxHeight = 1080,
   ): Promise<void> {
     try {
       await sharp(inputPath)
         .resize(maxWidth, maxHeight, {
-          fit: 'inside',
+          fit: "inside",
           withoutEnlargement: true,
         })
         .jpeg({ quality: 90, mozjpeg: true })
         .toFile(outputPath);
 
-      logger.info('Photo optimized', { inputPath, outputPath });
+      logger.info("Photo optimized", { inputPath, outputPath });
     } catch (error) {
-      logger.error('Failed to optimize photo', {
+      logger.error("Failed to optimize photo", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -365,20 +383,20 @@ export class ImageProcessorService {
     inputPath: string,
     outputPath: string,
     width = 300,
-    height = 400
+    height = 400,
   ): Promise<void> {
     try {
       await sharp(inputPath)
         .resize(width, height, {
-          fit: 'contain',
-          background: { r: 255, g: 255, b: 255 }
+          fit: "contain",
+          background: { r: 255, g: 255, b: 255 },
         })
         .jpeg({ quality: 80 })
         .toFile(outputPath);
 
-      logger.info('Thumbnail generated', { inputPath, outputPath });
+      logger.info("Thumbnail generated", { inputPath, outputPath });
     } catch (error) {
-      logger.error('Failed to generate thumbnail', {
+      logger.error("Failed to generate thumbnail", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -395,14 +413,14 @@ export class ImageProcessorService {
    */
   async generateTemplatePreview(
     templatePath: string,
-    templateType: 'overlay' | 'frame' | 'background',
+    templateType: "overlay" | "frame" | "background",
     positionData: TemplatePosition | { photoZones: TemplatePosition[] } | null,
     outputPath: string,
     previewWidth = 600,
-    previewHeight = 800
+    previewHeight = 800,
   ): Promise<void> {
     try {
-      logger.info('Generating template preview', { templatePath, outputPath });
+      logger.info("Generating template preview", { templatePath, outputPath });
 
       // 1. Load template and get its dimensions
       const templateMeta = await sharp(templatePath).metadata();
@@ -410,20 +428,23 @@ export class ImageProcessorService {
       const templateHeight = templateMeta.height || 4960;
 
       // 2. Load sample photo path
-      const samplePhotoPath = path.join(this.dataDir, 'sample-photo.jpg');
+      const samplePhotoPath = path.join(this.dataDir, "sample-photo.jpg");
 
       // 3. Get photo zones from positionData (already in pixels)
       const posData = parsePositionData(positionData);
       let photoZones: TemplatePosition[] = [];
 
-      if (posData && 'photoZones' in posData) {
+      if (posData && "photoZones" in posData) {
         photoZones = posData.photoZones as TemplatePosition[];
       } else if (posData) {
         // Single zone - use as-is
         photoZones = [posData as unknown as TemplatePosition];
       }
 
-      logger.info('Photo zones for preview', { zoneCount: photoZones.length, photoZones });
+      logger.info("Photo zones for preview", {
+        zoneCount: photoZones.length,
+        photoZones,
+      });
 
       // 4. If we have photo zones, place sample photo in each zone onto the template
       // Uses same approach as createA3Composite: photos composited onto template
@@ -440,11 +461,11 @@ export class ImageProcessorService {
 
             // Resize sample photo to fit the zone
             const photoBuffer = await sharp(samplePhotoPath)
-              .resize(width, height, { fit: 'cover' })
+              .resize(width, height, { fit: "cover" })
               .toBuffer();
 
             return { input: photoBuffer, left, top };
-          })
+          }),
         );
 
         // 5. Use template as base, composite photos onto it
@@ -455,20 +476,30 @@ export class ImageProcessorService {
 
         // Then resize to preview dimensions
         await sharp(composited)
-          .resize(previewWidth, previewHeight, { fit: 'contain', background: { r: 255, g: 255, b: 255 } })
+          .resize(previewWidth, previewHeight, {
+            fit: "contain",
+            background: { r: 255, g: 255, b: 255 },
+          })
           .jpeg({ quality: 85 })
           .toFile(outputPath);
       } else {
         // No photo zones - just resize template for preview
         await sharp(templatePath)
-          .resize(previewWidth, previewHeight, { fit: 'contain', background: { r: 255, g: 255, b: 255 } })
+          .resize(previewWidth, previewHeight, {
+            fit: "contain",
+            background: { r: 255, g: 255, b: 255 },
+          })
           .jpeg({ quality: 85 })
           .toFile(outputPath);
       }
 
-      logger.info('Template preview generated', { outputPath, previewWidth, previewHeight });
+      logger.info("Template preview generated", {
+        outputPath,
+        previewWidth,
+        previewHeight,
+      });
     } catch (error) {
-      logger.error('Failed to generate template preview', {
+      logger.error("Failed to generate template preview", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -481,13 +512,13 @@ export class ImageProcessorService {
    */
   async generateFilterPreview(
     filterConfig: FilterConfig,
-    outputPath: string
+    outputPath: string,
   ): Promise<void> {
     try {
-      logger.info('Generating filter preview', { outputPath });
+      logger.info("Generating filter preview", { outputPath });
 
       // Load sample photo
-      const samplePhotoPath = path.join(this.dataDir, 'sample-photo.jpg');
+      const samplePhotoPath = path.join(this.dataDir, "sample-photo.jpg");
       let image = sharp(samplePhotoPath);
 
       // Apply filter
@@ -495,13 +526,13 @@ export class ImageProcessorService {
 
       // Resize to thumbnail size
       await image
-        .resize(400, 300, { fit: 'cover' })
+        .resize(400, 300, { fit: "cover" })
         .jpeg({ quality: 85 })
         .toFile(outputPath);
 
-      logger.info('Filter preview generated', { outputPath });
+      logger.info("Filter preview generated", { outputPath });
     } catch (error) {
-      logger.error('Failed to generate filter preview', {
+      logger.error("Failed to generate filter preview", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -514,10 +545,10 @@ export class ImageProcessorService {
    */
   async generatePhotoFilterPreview(
     photoPath: string,
-    filterConfig: FilterConfig
+    filterConfig: FilterConfig,
   ): Promise<Buffer> {
     try {
-      logger.info('Generating photo filter preview', { photoPath });
+      logger.info("Generating photo filter preview", { photoPath });
 
       // Load photo
       let image = sharp(photoPath);
@@ -527,14 +558,14 @@ export class ImageProcessorService {
 
       // Resize to preview size and return buffer
       const buffer = await image
-        .resize(600, 450, { fit: 'inside', withoutEnlargement: true })
+        .resize(600, 450, { fit: "inside", withoutEnlargement: true })
         .jpeg({ quality: 85 })
         .toBuffer();
 
-      logger.info('Photo filter preview generated');
+      logger.info("Photo filter preview generated");
       return buffer;
     } catch (error) {
-      logger.error('Failed to generate photo filter preview', {
+      logger.error("Failed to generate photo filter preview", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -547,25 +578,26 @@ export class ImageProcessorService {
   async createCollage(
     photoPaths: string[],
     outputPath: string,
-    layout: '2x2' | '3x1' | '4x1' = '2x2'
+    layout: "2x2" | "3x1" | "4x1" = "2x2",
   ): Promise<void> {
     try {
-      logger.info('Creating collage', { count: photoPaths.length, layout });
+      logger.info("Creating collage", { count: photoPaths.length, layout });
 
       const photoBuffers = await Promise.all(
         photoPaths.map(async (photoPath) => {
           const buffer = await sharp(photoPath)
-            .resize(480, 480, { fit: 'cover' })
+            .resize(480, 480, { fit: "cover" })
             .toBuffer();
           return buffer;
-        })
+        }),
       );
 
       let compositeWidth: number;
       let compositeHeight: number;
-      const compositeImages: { input: Buffer; left: number; top: number }[] = [];
+      const compositeImages: { input: Buffer; left: number; top: number }[] =
+        [];
 
-      if (layout === '2x2') {
+      if (layout === "2x2") {
         compositeWidth = 960;
         compositeHeight = 960;
         const positions = [
@@ -577,7 +609,7 @@ export class ImageProcessorService {
         photoBuffers.slice(0, 4).forEach((buffer, index) => {
           compositeImages.push({ input: buffer, ...positions[index] });
         });
-      } else if (layout === '3x1') {
+      } else if (layout === "3x1") {
         compositeWidth = 1440;
         compositeHeight = 480;
         const positions = [
@@ -588,7 +620,7 @@ export class ImageProcessorService {
         photoBuffers.slice(0, 3).forEach((buffer, index) => {
           compositeImages.push({ input: buffer, ...positions[index] });
         });
-      } else if (layout === '4x1') {
+      } else if (layout === "4x1") {
         compositeWidth = 1920;
         compositeHeight = 480;
         const positions = [
@@ -616,9 +648,9 @@ export class ImageProcessorService {
         .jpeg({ quality: 90 })
         .toFile(outputPath);
 
-      logger.info('Collage created successfully', { outputPath });
+      logger.info("Collage created successfully", { outputPath });
     } catch (error) {
-      logger.error('Failed to create collage', {
+      logger.error("Failed to create collage", {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -632,10 +664,10 @@ export class ImageProcessorService {
   async createA3Composite(
     sessionId: string,
     templateId: string,
-    filterId?: string
+    filterId?: string,
   ): Promise<string> {
     try {
-      logger.info('Creating composite', { sessionId, templateId, filterId });
+      logger.info("Creating composite", { sessionId, templateId, filterId });
 
       // 1. Load template first to get dynamic configuration
       const template = await db.query.templates.findFirst({
@@ -651,37 +683,52 @@ export class ImageProcessorService {
       const canvasHeight = template.canvasHeight || 4960;
       const expectedPhotoCount = template.photoCount || 3;
 
-      logger.info('Loaded template', {
+      logger.info("Loaded template", {
         templateId,
         type: template.templateType,
         expectedPhotoCount,
         canvasWidth,
-        canvasHeight
+        canvasHeight,
       });
 
       // 2. Get photo zones from template positionData or fallback to hardcoded
-      let photoZones: { x: number; y: number; width: number; height: number }[] = [];
+      let photoZones: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }[] = [];
 
       // Try to get positions from template's positionData
       const posData = parsePositionData(template.positionData);
-      if (posData && 'photoZones' in posData && Array.isArray(posData.photoZones)) {
+      if (
+        posData &&
+        "photoZones" in posData &&
+        Array.isArray(posData.photoZones)
+      ) {
         photoZones = posData.photoZones;
-        logger.info('Using position data from template', { zoneCount: photoZones.length });
+        logger.info("Using position data from template", {
+          zoneCount: photoZones.length,
+        });
       } else {
         // Fallback to hardcoded positions
         const hardcodedPositions = getHardcodedPositions(template.name);
         if (hardcodedPositions) {
           photoZones = hardcodedPositions.photoZones;
-          logger.info('Using hardcoded positions', { zoneCount: photoZones.length });
+          logger.info("Using hardcoded positions", {
+            zoneCount: photoZones.length,
+          });
         } else {
-          throw new Error(`No position data found for template: ${template.name}`);
+          throw new Error(
+            `No position data found for template: ${template.name}`,
+          );
         }
       }
 
       if (photoZones.length !== expectedPhotoCount) {
-        logger.warn('Photo zone count mismatch', {
+        logger.warn("Photo zone count mismatch", {
           zoneCount: photoZones.length,
-          expectedPhotoCount
+          expectedPhotoCount,
         });
       }
 
@@ -693,8 +740,8 @@ export class ImageProcessorService {
         .where(
           and(
             eq(photos.sessionId, sessionId),
-            lte(photos.sequenceNumber, expectedPhotoCount)
-          )
+            lte(photos.sequenceNumber, expectedPhotoCount),
+          ),
         )
         .orderBy(asc(photos.sequenceNumber))
         .limit(expectedPhotoCount)
@@ -702,7 +749,7 @@ export class ImageProcessorService {
 
       if (sessionPhotos.length !== expectedPhotoCount) {
         throw new Error(
-          `Session must have ${expectedPhotoCount} photos for composite (found ${sessionPhotos.length})`
+          `Session must have ${expectedPhotoCount} photos for composite (found ${sessionPhotos.length})`,
         );
       }
 
@@ -717,7 +764,7 @@ export class ImageProcessorService {
         });
         if (filter) {
           filterConfig = filter.filterConfig as FilterConfig;
-          logger.info('Filter loaded for composite', { filterId });
+          logger.info("Filter loaded for composite", { filterId });
         }
       }
 
@@ -728,7 +775,7 @@ export class ImageProcessorService {
 
         // Apply filter if specified
         if (filterConfig) {
-          logger.info('Applying filter to photo', {
+          logger.info("Applying filter to photo", {
             photoId: photo.id,
             filterId,
           });
@@ -738,12 +785,12 @@ export class ImageProcessorService {
         processedPhotos.push(await image.toBuffer());
       }
 
-      logger.info('Photos processed with filters');
+      logger.info("Photos processed with filters");
 
       // 5. Load template
       const templateBuffer = await fs.readFile(template.filePath);
 
-      logger.info('Template position data', { photoZones });
+      logger.info("Template position data", { photoZones });
 
       // 5. Create composite buffers for each photo
       const compositeBuffers = await Promise.all(
@@ -759,11 +806,11 @@ export class ImageProcessorService {
 
           // Resize photo to fit zone
           const resizedPhoto = await sharp(photoBuffer)
-            .resize(width, height, { fit: 'cover' })
+            .resize(width, height, { fit: "cover" })
             .toBuffer();
 
           return { input: resizedPhoto, left, top };
-        })
+        }),
       );
 
       // 6. Composite everything onto the template
@@ -772,12 +819,12 @@ export class ImageProcessorService {
 
       // Resize template to canvas dimensions and composite photos
       await sharp(templateBuffer)
-        .resize(canvasWidth, canvasHeight, { fit: 'fill' })
+        .resize(canvasWidth, canvasHeight, { fit: "fill" })
         .composite(compositeBuffers)
-        .jpeg({ quality: 95, chromaSubsampling: '4:4:4' })
+        .jpeg({ quality: 95, chromaSubsampling: "4:4:4" })
         .toFile(compositePath);
 
-      logger.info('Composite created successfully', {
+      logger.info("Composite created successfully", {
         sessionId,
         compositePath,
         dimensions: `${canvasWidth}x${canvasHeight}`,
@@ -794,21 +841,24 @@ export class ImageProcessorService {
         templateId,
         filterId: filterId || null,
         captureTime: new Date(),
-        processingStatus: 'completed',
+        processingStatus: "completed",
         fileSize: null,
         width: canvasWidth,
         height: canvasHeight,
         processingError: null,
-        metadata: JSON.stringify({ isComposite: true, photoCount: expectedPhotoCount }),
+        metadata: JSON.stringify({
+          isComposite: true,
+          photoCount: expectedPhotoCount,
+        }),
       };
 
       await db.insert(photos).values(compositePhoto).run();
 
-      logger.info('Composite photo record saved', { compositePhotoId });
+      logger.info("Composite photo record saved", { compositePhotoId });
 
       return compositePhotoId;
     } catch (error) {
-      logger.error('Failed to create A3 composite', {
+      logger.error("Failed to create A3 composite", {
         error: error instanceof Error ? error.message : String(error),
         sessionId,
         templateId,

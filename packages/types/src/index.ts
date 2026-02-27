@@ -8,7 +8,7 @@
  * - A4: 210mm × 297mm (2480px × 3508px @ 300 DPI)
  * - CUSTOM: Non-standard dimensions
  */
-export type PaperSize = 'A3' | 'A4' | 'CUSTOM';
+export type PaperSize = "A3" | "A4" | "CUSTOM";
 
 export interface Package {
   id: string;
@@ -30,7 +30,7 @@ export interface Template {
   filePath: string;
   thumbnailPath: string | null;
   previewPath: string | null;
-  templateType: 'overlay' | 'frame' | 'background';
+  templateType: "overlay" | "frame" | "background";
   positionData: TemplatePosition | MultiZonePosition | null;
   photoCount: number;
   canvasWidth: number;
@@ -52,8 +52,8 @@ export interface TemplatePosition {
 
 export interface PhotoZone {
   id: string;
-  x: number;      // Pixels from left
-  y: number;      // Pixels from top
+  x: number; // Pixels from left
+  y: number; // Pixels from top
   width: number;
   height: number;
   rotation?: number;
@@ -104,13 +104,13 @@ export interface Session {
 }
 
 export type SessionStatus =
-  | 'created'
-  | 'awaiting_payment'
-  | 'paid'
-  | 'capturing'
-  | 'processing'
-  | 'completed'
-  | 'failed';
+  | "created"
+  | "awaiting_payment"
+  | "paid"
+  | "capturing"
+  | "processing"
+  | "completed"
+  | "failed";
 
 export interface Transaction {
   id: string;
@@ -127,16 +127,15 @@ export interface Transaction {
   midtransResponse: Record<string, any> | null;
 }
 
-export type TransactionStatus =
-  | 'pending'
-  | 'success'
-  | 'failed'
-  | 'expired';
+export type TransactionStatus = "pending" | "success" | "failed" | "expired";
 
 export interface Photo {
   id: string;
   sessionId: string;
   sequenceNumber: number;
+  version: number; // Version number for retakes (v1, v2, v3...)
+  isRetake: boolean; // Whether this photo is a retake
+  retakeOfId: string | null; // Reference to parent photo (if retake)
   originalPath: string;
   processedPath: string | null;
   templateId: string | null;
@@ -151,10 +150,10 @@ export interface Photo {
 }
 
 export type ProcessingStatus =
-  | 'pending'
-  | 'processing'
-  | 'completed'
-  | 'failed';
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed";
 
 export interface PrintQueue {
   id: string;
@@ -170,11 +169,7 @@ export interface PrintQueue {
   retryCount: number;
 }
 
-export type PrintStatus =
-  | 'pending'
-  | 'printing'
-  | 'completed'
-  | 'failed';
+export type PrintStatus = "pending" | "printing" | "completed" | "failed";
 
 export interface WhatsAppDelivery {
   id: string;
@@ -188,10 +183,7 @@ export interface WhatsAppDelivery {
   externalId: string | null;
 }
 
-export type DeliveryStatus =
-  | 'pending'
-  | 'sent'
-  | 'failed';
+export type DeliveryStatus = "pending" | "sent" | "failed";
 
 export interface Setting {
   id: number;
@@ -288,7 +280,7 @@ export interface SendWhatsAppResponse {
 
 export interface QueuePrintRequest {
   copies?: number;
-  paperSize?: 'A3' | 'A4'; // Override paper size for testing (no CUSTOM for actual printing)
+  paperSize?: "A3" | "A4"; // Override paper size for testing (no CUSTOM for actual printing)
 }
 
 export interface QueuePrintResponse {
@@ -324,7 +316,7 @@ export interface UpdatePackageRequest {
 export interface CreateTemplateRequest {
   name: string;
   description?: string;
-  templateType: 'overlay' | 'frame' | 'background';
+  templateType: "overlay" | "frame" | "background";
   positionData?: TemplatePosition | MultiZonePosition;
   paperSize?: PaperSize; // Optional - will auto-detect if not provided
 }
@@ -347,7 +339,7 @@ export interface CreateFilterRequest {
 export interface AnalyticsQuery {
   startDate?: string;
   endDate?: string;
-  groupBy?: 'day' | 'week' | 'month';
+  groupBy?: "day" | "week" | "month";
 }
 
 export interface AnalyticsResponse {
@@ -464,7 +456,7 @@ export interface DetectCamerasResponse {
 }
 
 export interface HealthCheckResponse {
-  status: 'ok' | 'error';
+  status: "ok" | "error";
   uptime: number;
   cameraConnected: boolean;
 }
@@ -474,7 +466,7 @@ export interface HealthCheckResponse {
 // ============================================================================
 
 export interface PaymentUpdateEvent {
-  event: 'payment_update';
+  event: "payment_update";
   data: {
     status: TransactionStatus;
     paid: boolean;
@@ -482,11 +474,11 @@ export interface PaymentUpdateEvent {
 }
 
 export type CameraEventType =
-  | 'countdown'
-  | 'capturing'
-  | 'captured'
-  | 'processing'
-  | 'error';
+  | "countdown"
+  | "capturing"
+  | "captured"
+  | "processing"
+  | "error";
 
 export interface CameraEvent {
   event: CameraEventType;
@@ -525,7 +517,7 @@ export interface ApiSuccess<T = any> {
 export interface PrintCommand {
   imagePath: string;
   copies: number;
-  paperSize: 'A3' | 'A4'; // Paper size for printing (CUSTOM not supported, defaults to A3)
+  paperSize: "A3" | "A4"; // Paper size for printing (CUSTOM not supported, defaults to A3)
 }
 
 export interface PrintResult {
@@ -566,10 +558,10 @@ export interface AppConfig {
   midtrans: {
     serverKey: string;
     clientKey: string;
-    environment: 'sandbox' | 'production';
+    environment: "sandbox" | "production";
   };
   whatsapp: {
-    provider: 'fonnte' | 'wablas';
+    provider: "fonnte" | "wablas";
     apiKey: string;
   };
 }

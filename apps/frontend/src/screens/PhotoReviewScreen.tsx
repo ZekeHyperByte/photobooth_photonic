@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { useUIStore } from '../stores/uiStore';
-import { useSessionStore } from '../stores/sessionStore';
-import { usePhotoStore } from '../stores/photoStore';
-import { Button } from '../components/ui/Button';
+import React, { useState, useMemo } from "react";
+import { useUIStore } from "../stores/uiStore";
+import { useSessionStore } from "../stores/sessionStore";
+import { usePhotoStore } from "../stores/photoStore";
+import { Button } from "../components/ui/Button";
 
 /**
  * Convert filesystem paths or relative paths to proper URLs
@@ -11,20 +11,20 @@ const getPhotoUrl = (path: string | null): string | null => {
   if (!path) return null;
 
   // Already a full URL
-  if (path.startsWith('http')) return path;
+  if (path.startsWith("http")) return path;
 
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
   // Relative path starting with /data/
-  if (path.startsWith('/data/')) {
+  if (path.startsWith("/data/")) {
     return `${apiUrl}${path}`;
   }
 
   // Absolute filesystem path - extract filename and determine directory
-  const filename = path.split('/').pop();
+  const filename = path.split("/").pop();
 
   // Check for composite or processed images
-  if (path.includes('/processed/') || filename?.startsWith('composite-')) {
+  if (path.includes("/processed/") || filename?.startsWith("composite-")) {
     return `${apiUrl}/data/processed/${filename}`;
   }
 
@@ -40,21 +40,28 @@ const PhotoReviewScreen: React.FC = () => {
 
   // Get photo count from session metadata or default to 3
   const totalPhotoCount = useMemo(() => {
-    const photoCountFromSession = (session?.metadata as any)?.hardcodedConfig?.photoCount;
+    const photoCountFromSession = (session?.metadata as any)?.hardcodedConfig
+      ?.photoCount;
     return photoCountFromSession || 3;
   }, [session]);
 
   // Debug logging
-  console.log('[PhotoReviewScreen] All photos:', photos);
-  console.log('[PhotoReviewScreen] Photo sequence numbers:', photos.map(p => ({ id: p.id, seq: p.sequenceNumber })));
-  console.log('[PhotoReviewScreen] Expected photo count:', totalPhotoCount);
+  console.log("[PhotoReviewScreen] All photos:", photos);
+  console.log(
+    "[PhotoReviewScreen] Photo sequence numbers:",
+    photos.map((p) => ({ id: p.id, seq: p.sequenceNumber })),
+  );
+  console.log("[PhotoReviewScreen] Expected photo count:", totalPhotoCount);
 
   // Filter to only show original capture photos and sort
   const capturedPhotos = photos
     .filter((p) => p.sequenceNumber >= 1 && p.sequenceNumber <= totalPhotoCount)
     .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
 
-  console.log('[PhotoReviewScreen] Captured photos (filtered):', capturedPhotos);
+  console.log(
+    "[PhotoReviewScreen] Captured photos (filtered):",
+    capturedPhotos,
+  );
 
   const selectedPhoto = capturedPhotos[selectedIndex];
 
@@ -72,11 +79,11 @@ const PhotoReviewScreen: React.FC = () => {
   const handleBack = () => {
     // Go back to capture (full redo - clear photos)
     resetPhotos();
-    setScreen('capture');
+    setScreen("capture");
   };
 
   const handleContinue = () => {
-    setScreen('processing');
+    setScreen("processing");
   };
 
   return (
@@ -87,7 +94,9 @@ const PhotoReviewScreen: React.FC = () => {
           Kembali
         </Button>
         <div className="inline-block bg-black px-6 py-3">
-          <h1 className="text-3xl font-bold text-neo-cream">Periksa Foto Anda</h1>
+          <h1 className="text-3xl font-bold text-neo-cream">
+            Periksa Foto Anda
+          </h1>
         </div>
         <Button
           onClick={handleContinue}
@@ -106,7 +115,7 @@ const PhotoReviewScreen: React.FC = () => {
           <div className="max-h-[45vh] border-[3px] border-black shadow-neo-lg bg-white p-2">
             {selectedPhoto ? (
               <img
-                src={getPhotoUrl(selectedPhoto.originalPath) || ''}
+                src={getPhotoUrl(selectedPhoto.originalPath) || ""}
                 alt={`Foto ${selectedIndex + 1}`}
                 className="max-h-[42vh] w-auto object-contain"
               />
@@ -131,13 +140,13 @@ const PhotoReviewScreen: React.FC = () => {
                   onClick={() => handleThumbnailClick(index)}
                   className={`relative w-28 h-20 border-[3px] bg-white overflow-hidden transition-all duration-200 ${
                     isSelected
-                      ? 'border-neo-yellow shadow-neo-lg scale-105'
-                      : 'border-black shadow-neo hover:border-neo-cyan'
+                      ? "border-neo-yellow shadow-neo-lg scale-105"
+                      : "border-black shadow-neo hover:border-neo-cyan"
                   }`}
                 >
                   {photo ? (
                     <img
-                      src={getPhotoUrl(photo.originalPath) || ''}
+                      src={getPhotoUrl(photo.originalPath) || ""}
                       alt={`Thumbnail ${index + 1}`}
                       className="w-full h-full object-cover"
                     />
@@ -152,10 +161,18 @@ const PhotoReviewScreen: React.FC = () => {
                       <span className="text-xs font-bold">✓</span>
                     </div>
                   )}
+                  {/* Version badge - show when photo has been retaken (v2+) */}
+                  {photo && photo.version && photo.version > 1 && (
+                    <div className="absolute bottom-1 left-1 bg-neo-cyan text-black text-xs font-bold px-1.5 py-0.5 border border-black">
+                      v{photo.version}
+                    </div>
+                  )}
                 </button>
 
                 {/* Photo number label */}
-                <span className="text-sm font-bold text-black">Foto {index + 1}</span>
+                <span className="text-sm font-bold text-black">
+                  Foto {index + 1}
+                </span>
 
                 {/* Retake button */}
                 <Button

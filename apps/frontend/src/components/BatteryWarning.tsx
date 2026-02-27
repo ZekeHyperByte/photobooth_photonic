@@ -1,9 +1,10 @@
-import { useEffect, useState, memo } from "react";
+import { memo } from "react";
 import { X, BatteryWarning } from "./icons";
 
 interface BatteryWarningToastProps {
   level: number;
   threshold?: number;
+  dismissed?: boolean;
   onDismiss?: () => void;
 }
 
@@ -14,26 +15,15 @@ interface BatteryWarningToastProps {
 export const BatteryWarningToast = memo(function BatteryWarningToast({
   level,
   threshold = 20,
+  dismissed = false,
   onDismiss,
 }: BatteryWarningToastProps) {
-  const [visible, setVisible] = useState(true);
-  const [dismissed, setDismissed] = useState(false);
-
-  useEffect(() => {
-    // Reset visibility when battery drops below threshold again
-    if (level <= threshold && dismissed) {
-      setDismissed(false);
-      setVisible(true);
-    }
-  }, [level, threshold, dismissed]);
-
-  if (!visible || dismissed || level > threshold) {
+  // Use prop-controlled dismissed state from parent store
+  if (dismissed || level > threshold) {
     return null;
   }
 
   const handleDismiss = () => {
-    setVisible(false);
-    setDismissed(true);
     onDismiss?.();
   };
 

@@ -107,7 +107,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
 
         // Handle retake mode or new photo
         if (body.retakePhotoId) {
-          // Retake mode: Update existing photo
+          // Retake mode: Create new version of existing photo
           const existingPhoto = await db.query.photos.findFirst({
             where: eq(photos.id, body.retakePhotoId),
           });
@@ -119,19 +119,25 @@ export async function photoRoutes(fastify: FastifyInstance) {
             });
           }
 
-          const originalFilename = `photo-${body.retakePhotoId}-original.jpg`;
+          // Calculate next version number
+          const nextVersion = (existingPhoto.version || 1) + 1;
+          const originalFilename = `photo-${body.retakePhotoId}-v${nextVersion}.jpg`;
           const originalPath = path.join(photosDir, originalFilename);
 
-          // Copy new photo to replace old one
+          // Copy new photo to new version file (keep old version for cleanup later)
           await fs.copyFile(captureResult.imagePath, originalPath);
 
-          // Update photo record
+          // Update photo record with new version
           await db
             .update(photos)
             .set({
               originalPath,
+              version: nextVersion,
+              isRetake: true,
               captureTime: new Date(),
               metadata: captureResult.metadata as any,
+              processedPath: null, // Clear processed path since we have new image
+              processingStatus: "pending",
             })
             .where(eq(photos.id, body.retakePhotoId));
 
@@ -141,6 +147,8 @@ export async function photoRoutes(fastify: FastifyInstance) {
 
           logger.info("Photo retaken successfully", {
             photoId: body.retakePhotoId,
+            version: nextVersion,
+            previousVersion: existingPhoto.version || 1,
           });
 
           return reply.code(HTTP_STATUS.OK).send({
@@ -152,19 +160,22 @@ export async function photoRoutes(fastify: FastifyInstance) {
             },
           });
         } else {
-          // New photo mode
+          // New photo mode - start at version 1
           const photoId = nanoid();
-          const originalFilename = `photo-${photoId}-original.jpg`;
+          const originalFilename = `photo-${photoId}-v1.jpg`;
           const originalPath = path.join(photosDir, originalFilename);
 
           // Copy photo from temp directory to photos directory
           await fs.copyFile(captureResult.imagePath, originalPath);
 
-          // Create photo record
+          // Create photo record with version 1
           const newPhoto = {
             id: photoId,
             sessionId: body.sessionId,
             originalPath,
+            version: 1,
+            isRetake: false,
+            retakeOfId: null,
             processedPath: null,
             templateId: body.templateId || null,
             filterId: body.filterId || null,
@@ -183,7 +194,10 @@ export async function photoRoutes(fastify: FastifyInstance) {
             });
           }
 
-          logger.info("Photo captured successfully", { photoId });
+          logger.info("Photo captured successfully", {
+            photoId,
+            version: 1,
+          });
 
           return reply.code(HTTP_STATUS.CREATED).send({
             success: true,
@@ -264,7 +278,7 @@ export async function photoRoutes(fastify: FastifyInstance) {
         const rawPhotos = existingPhotos.filter((p) => p.sequenceNumber <= 3);
         const sequenceNumber = rawPhotos.length + 1;
 
-        // Handle retake mode: update existing photo instead of creating new one
+        // Handle retake mode: create new version of existing photo
         if (body.retakePhotoId) {
           const existingPhoto = existingPhotos.find(
             (p) => p.id === body.retakePhotoId,
@@ -280,40 +294,38 @@ export async function photoRoutes(fastify: FastifyInstance) {
             sessionId: body.sessionId,
             retakePhotoId: body.retakePhotoId,
             existingSequence: existingPhoto.sequenceNumber,
+            currentVersion: existingPhoto.version || 1,
           });
 
-          // Generate new filename for the retake
-          const retakeFilename = `photo-${body.retakePhotoId}-retake-${Date.now()}.jpg`;
+          // Calculate next version number
+          const nextVersion = (existingPhoto.version || 1) + 1;
+          const retakeFilename = `photo-${body.retakePhotoId}-v${nextVersion}.jpg`;
           const retakePath = path.join(photosDir, retakeFilename);
 
-          // Save new image to disk
+          // Save new image to new version file (keep old version for cleanup later)
           await fs.writeFile(retakePath, imageBuffer);
 
-          // Delete old image file (ignore errors if file doesn't exist)
-          try {
-            await fs.unlink(existingPhoto.originalPath);
-          } catch {
-            // Old file may not exist, that's ok
-          }
-
-          // Update the existing photo record with new path
+          // Update the existing photo record with new version
           await db
             .update(photos)
             .set({
               originalPath: retakePath,
+              version: nextVersion,
+              isRetake: true,
               processedPath: null, // Clear processed path since we have new image
+              processingStatus: "pending",
+              captureTime: new Date(),
             })
             .where(eq(photos.id, body.retakePhotoId));
 
-          const updatedPhoto = {
-            ...existingPhoto,
-            originalPath: retakePath,
-            processedPath: null,
-          };
+          const updatedPhoto = await db.query.photos.findFirst({
+            where: eq(photos.id, body.retakePhotoId),
+          });
 
           logger.info("Photo retake completed", {
             photoId: body.retakePhotoId,
-            newPath: retakePath,
+            version: nextVersion,
+            previousVersion: existingPhoto.version || 1,
           });
 
           return reply.code(HTTP_STATUS.OK).send({
@@ -347,19 +359,22 @@ export async function photoRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // Generate photo ID and paths
+        // Generate photo ID and paths - start at version 1
         const photoId = nanoid();
-        const originalFilename = `photo-${photoId}-original.jpg`;
+        const originalFilename = `photo-${photoId}-v1.jpg`;
         const originalPath = path.join(photosDir, originalFilename);
 
         // Save image to disk
         await fs.writeFile(originalPath, imageBuffer);
 
-        // Create photo record
+        // Create photo record with version 1
         const newPhoto = {
           id: photoId,
           sessionId: body.sessionId,
           sequenceNumber,
+          version: 1,
+          isRetake: false,
+          retakeOfId: null,
           originalPath,
           processedPath: null,
           templateId: body.templateId || null,
@@ -376,7 +391,10 @@ export async function photoRoutes(fastify: FastifyInstance) {
           });
         }
 
-        logger.info("Browser photo uploaded successfully", { photoId });
+        logger.info("Browser photo uploaded successfully", {
+          photoId,
+          version: 1,
+        });
 
         return reply.code(HTTP_STATUS.CREATED).send({
           success: true,

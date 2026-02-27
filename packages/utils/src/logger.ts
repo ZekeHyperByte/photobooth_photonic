@@ -1,5 +1,6 @@
 // Check if we're in a Node.js environment
-const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+const isNode =
+  typeof process !== "undefined" && process.versions && process.versions.node;
 
 /**
  * Create a logger instance with consistent formatting
@@ -18,29 +19,35 @@ export function createLogger(service: string): any {
   }
 
   // Node.js environment - use Winston
-  const winston = require('winston');
-  const { isDevelopment } = require('@photonic/config');
+  const winston = require("winston");
+
+  // Check if we're in development mode
+  const isDevelopmentMode =
+    process.env.NODE_ENV === "development" ||
+    process.env.NODE_ENV !== "production";
 
   const format = winston.format.combine(
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
     winston.format.errors({ stack: true }),
     winston.format.splat(),
-    winston.format.json()
+    winston.format.json(),
   );
 
   const consoleFormat = winston.format.combine(
     winston.format.colorize(),
-    winston.format.printf(({ level, message, timestamp, service, ...metadata }: any) => {
-      let msg = `${timestamp} [${service}] ${level}: ${message}`;
-      if (Object.keys(metadata).length > 0) {
-        msg += ` ${JSON.stringify(metadata)}`;
-      }
-      return msg;
-    })
+    winston.format.printf(
+      ({ level, message, timestamp, service, ...metadata }: any) => {
+        let msg = `${timestamp} [${service}] ${level}: ${message}`;
+        if (Object.keys(metadata).length > 0) {
+          msg += ` ${JSON.stringify(metadata)}`;
+        }
+        return msg;
+      },
+    ),
   );
 
   const logger = winston.createLogger({
-    level: isDevelopment() ? 'debug' : 'info',
+    level: isDevelopmentMode ? "debug" : "info",
     format,
     defaultMeta: { service },
     transports: [
@@ -52,17 +59,17 @@ export function createLogger(service: string): any {
   });
 
   // Add file transports in production
-  if (!isDevelopment()) {
+  if (!isDevelopmentMode) {
     logger.add(
       new winston.transports.File({
-        filename: 'logs/error.log',
-        level: 'error',
-      })
+        filename: "logs/error.log",
+        level: "error",
+      }),
     );
     logger.add(
       new winston.transports.File({
-        filename: 'logs/combined.log',
-      })
+        filename: "logs/combined.log",
+      }),
     );
   }
 
@@ -72,4 +79,4 @@ export function createLogger(service: string): any {
 /**
  * Default logger instance
  */
-export const logger = createLogger('photonic');
+export const logger = createLogger("photonic");

@@ -3,6 +3,7 @@ Camera Service - FastAPI Application
 
 Provides REST API and WebSocket endpoints for camera control.
 Optimized for Canon EOS 550D photobooth operations.
+Uses CameraWorker for serialized USB access to prevent I/O conflicts.
 """
 
 import asyncio
@@ -17,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .backends.gphoto2_backend import GPhoto2Backend, CameraConfig
+from .camera_worker import CameraWorkerAdapter
 from .models.schemas import (
     CameraStatusResponse,
     CaptureRequest,
@@ -32,14 +34,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global backend instance
+# Global backend and worker instances
 backend: Optional[GPhoto2Backend] = None
+camera_worker: Optional[CameraWorkerAdapter] = None
+
+# Capture state tracking for reconnection management
+capture_state = {
+    "is_capturing": False,
+    "capture_start_time": None,
+    "session_id": None
+}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global backend
+    global backend, camera_worker
     
     logger.info("Starting Camera Service...")
     
@@ -47,8 +57,13 @@ async def lifespan(app: FastAPI):
     config = CameraConfig()
     backend = GPhoto2Backend(config)
     
+    # Create and start camera worker for serialized USB access
+    camera_worker = CameraWorkerAdapter(backend)
+    camera_worker.start()
+    
     try:
-        backend.initialize()
+        # Initialize camera through worker
+        await camera_worker.initialize()
         logger.info("Camera Service started successfully")
     except Exception as e:
         logger.error(f"Failed to initialize camera: {e}")
@@ -58,8 +73,9 @@ async def lifespan(app: FastAPI):
     
     # Cleanup
     logger.info("Shutting down Camera Service...")
-    if backend:
-        backend.cleanup()
+    if camera_worker:
+        await camera_worker.cleanup()
+        camera_worker.stop()
     logger.info("Camera Service stopped")
 
 
@@ -90,14 +106,19 @@ async def health_check():
 @app.post("/api/v1/camera/connect")
 async def connect_camera():
     """Connect to camera"""
-    global backend
+    global backend, camera_worker
     
     try:
         if not backend:
             backend = GPhoto2Backend()
         
+        if not camera_worker:
+            camera_worker = CameraWorkerAdapter(backend)
+            camera_worker.start()
+        
         if not backend.is_connected():
-            backend.initialize()
+            # Initialize through worker for serialized access
+            await camera_worker.initialize()
         
         return {"success": True, "message": "Camera connected"}
     
@@ -109,12 +130,16 @@ async def connect_camera():
 @app.post("/api/v1/camera/disconnect")
 async def disconnect_camera():
     """Disconnect from camera"""
-    global backend
+    global backend, camera_worker
     
     try:
-        if backend:
-            backend.cleanup()
-            backend = None
+        if camera_worker:
+            # Cleanup through worker
+            await camera_worker.cleanup()
+            camera_worker.stop()
+            camera_worker = None
+        
+        backend = None
         
         return {"success": True, "message": "Camera disconnected"}
     
@@ -151,13 +176,14 @@ async def get_status():
 @app.post("/api/v1/camera/liveview/start")
 async def start_liveview():
     """Start live view"""
-    global backend
+    global backend, camera_worker
     
     try:
         if not backend or not backend.is_connected():
             raise HTTPException(status_code=503, detail="Camera not connected")
         
-        backend.start_liveview()
+        # Start live view through worker for serialized access
+        await camera_worker.start_liveview()
         return {"success": True, "message": "Live view started"}
     
     except Exception as e:
@@ -168,13 +194,14 @@ async def start_liveview():
 @app.post("/api/v1/camera/liveview/stop")
 async def stop_liveview():
     """Stop live view"""
-    global backend
+    global backend, camera_worker
     
     try:
         if not backend or not backend.is_connected():
             return {"success": True, "message": "Camera not connected"}
         
-        backend.stop_liveview()
+        # Stop live view through worker
+        await camera_worker.stop_liveview()
         return {"success": True, "message": "Live view stopped"}
     
     except Exception as e:
@@ -189,20 +216,61 @@ async def liveview_stream(websocket: WebSocket):
     
     Sends JPEG frames continuously while live view is active.
     Client should disconnect to stop the stream.
+    Optimized for Canon EOS 550D with serialized USB access.
     """
-    global backend
+    global backend, camera_worker
     
     await websocket.accept()
     logger.info("Live view WebSocket client connected")
     
+    frame_count = 0
+    startup_delay = 1.5  # Wait for camera to stabilize (Canon 550D needs this)
+    warmup_frames = 5    # Number of frames to buffer before sending
+    
     try:
         # Start live view if not already active
         if backend and backend.is_connected() and not backend._liveview_active:
-            backend.start_liveview()
+            logger.info("Starting live view for WebSocket...")
+            await camera_worker.start_liveview()
+            
+            # CRITICAL: Wait for camera to stabilize
+            # Canon EOS 550D needs time after mirror flips up
+            logger.info(f"Waiting {startup_delay}s for camera to stabilize...")
+            await websocket.send_json({"status": "starting", "message": "Initializing live view..."})
+            await asyncio.sleep(startup_delay)
         
-        frame_count = 0
+        # Collect warmup frames to ensure stable stream
+        logger.info("Collecting warmup frames...")
+        warmup_buffer = []
+        warmup_start = time.time()
+        warmup_timeout = 5.0  # Max 5 seconds to get warmup frames
+        
+        while len(warmup_buffer) < warmup_frames and (time.time() - warmup_start) < warmup_timeout:
+            try:
+                frame = await camera_worker.get_liveview_frame()
+                if frame and len(frame) > 1000:
+                    warmup_buffer.append(frame)
+                    logger.debug(f"Warmup frame {len(warmup_buffer)}/{warmup_frames} collected")
+                else:
+                    await asyncio.sleep(0.05)
+            except Exception as e:
+                logger.warning(f"Warmup frame error: {e}")
+                await asyncio.sleep(0.1)
+        
+        if len(warmup_buffer) > 0:
+            logger.info(f"Live view ready with {len(warmup_buffer)} warmup frames")
+            await websocket.send_json({"status": "ready", "message": "Live view active"})
+            # Send the last warmup frame immediately so client sees something
+            await websocket.send_bytes(warmup_buffer[-1])
+            frame_count += 1
+        else:
+            logger.error("Failed to collect warmup frames")
+            await websocket.send_json({"error": "Failed to initialize live view - no frames received"})
+            return
+        
         error_count = 0
         max_errors = 50
+        last_frame_time = time.time()
         
         while True:
             if not backend or not backend.is_connected():
@@ -214,16 +282,20 @@ async def liveview_stream(websocket: WebSocket):
                 break
             
             try:
-                # Get frame
-                frame = backend.get_liveview_frame()
+                # Get frame through camera worker (serialized USB access with retry)
+                frame = await camera_worker.get_liveview_frame()
                 
                 if frame and len(frame) > 0:
                     # Send as binary
                     await websocket.send_bytes(frame)
                     frame_count += 1
                     error_count = 0
+                    last_frame_time = time.time()
                 else:
-                    # No frame available, brief pause
+                    # No frame available (rate limited or error), check if we've been waiting too long
+                    time_since_last = time.time() - last_frame_time
+                    if time_since_last > 2.0:
+                        logger.warning(f"No frames for {time_since_last:.1f}s, client may see white screen")
                     await asyncio.sleep(0.033)  # ~30fps max
                 
             except Exception as e:
@@ -242,7 +314,7 @@ async def liveview_stream(websocket: WebSocket):
                 await asyncio.sleep(0.05)
     
     except WebSocketDisconnect:
-        logger.info(f"Live view WebSocket client disconnected. Frames sent: {frame_count if 'frame_count' in dir() else 0}")
+        logger.info(f"Live view WebSocket client disconnected. Frames sent: {frame_count}")
     
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
@@ -259,7 +331,12 @@ async def capture_photo(request: CaptureRequest, background_tasks: BackgroundTas
     
     Temporarily pauses live view, captures photo, then resumes live view.
     """
-    global backend
+    global backend, camera_worker, capture_state
+    
+    # Mark capture as starting
+    capture_state["is_capturing"] = True
+    capture_state["capture_start_time"] = time.time()
+    capture_state["session_id"] = request.session_id
     
     start_time = time.time()
     
@@ -278,8 +355,8 @@ async def capture_photo(request: CaptureRequest, background_tasks: BackgroundTas
         
         logger.info(f"Capture request: {filename}")
         
-        # Capture photo
-        result = backend.capture_photo(output_path)
+        # Capture photo through camera worker (serialized USB access with retry)
+        result = await camera_worker.capture_photo(output_path)
         
         capture_time = int((time.time() - start_time) * 1000)
         
@@ -288,12 +365,19 @@ async def capture_photo(request: CaptureRequest, background_tasks: BackgroundTas
             image_path=result.image_path,
             metadata=result.metadata,
             error=result.error,
+            error_type=result.error_type,
             capture_time_ms=capture_time,
         )
     
     except Exception as e:
         logger.error(f"Capture error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+    finally:
+        # Mark capture as complete
+        capture_state["is_capturing"] = False
+        capture_state["capture_start_time"] = None
+        capture_state["session_id"] = None
 
 
 @app.post("/api/v1/camera/config")
@@ -322,6 +406,22 @@ async def update_config(request: ConfigUpdateRequest):
     except Exception as e:
         logger.error(f"Config update error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/camera/capture/status")
+async def get_capture_status():
+    """Check if a capture is currently in progress"""
+    global capture_state
+    return {
+        "is_capturing": capture_state["is_capturing"],
+        "capture_start_time": capture_state["capture_start_time"],
+        "session_id": capture_state["session_id"],
+        "elapsed_seconds": (
+            time.time() - capture_state["capture_start_time"]
+            if capture_state["capture_start_time"]
+            else None
+        )
+    }
 
 
 if __name__ == "__main__":

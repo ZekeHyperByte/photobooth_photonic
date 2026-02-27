@@ -104,6 +104,20 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       logger.info("Initializing database...");
       initDatabase(env.databasePath);
       logger.info("Database initialized successfully");
+
+      // Auto-run migrations
+      try {
+        const { autoMigrate } = await import("./db/auto-migrate");
+        const migrationSuccess = await autoMigrate(env.databasePath);
+        if (migrationSuccess) {
+          logger.info("Database migrations completed");
+        } else {
+          logger.warn("Database migrations had issues, continuing anyway");
+        }
+      } catch (migrateError) {
+        logger.warn("Auto-migration failed:", migrateError);
+        logger.warn("Continuing without migration...");
+      }
     } catch (dbError) {
       logger.warn(
         "Database initialization failed, continuing without database:",
@@ -131,29 +145,32 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     logger.info(`Environment: ${env.nodeEnv}`);
     logger.info(`Database: ${env.databasePath} (optional)`);
 
-    // Initialize CameraManager for multi-camera support (must be first)
+    // Start periodic cleanup job (runs every 24 hours)
+    try {
+      const { getCleanupService } = await import("./services/cleanup-service");
+      const cleanupService = getCleanupService();
+      cleanupService.startPeriodicCleanup(24);
+      logger.info("Periodic cleanup job started (24h interval)");
+    } catch (error) {
+      logger.error("Failed to start periodic cleanup job", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // Initialize CameraManager
     const cameraManager = getCameraManager();
     let activeProvider: CameraProvider | null | undefined = null;
     try {
       await cameraManager.initialize();
-      logger.info("CameraManager initialized with multi-camera support");
-
-      // Log discovered cameras
-      const cameras = cameraManager.getCameras();
-      if (cameras.length > 0) {
-        logger.info(
-          `Discovered ${cameras.length} camera(s):`,
-          cameras.map((c) => ({
-            id: c.id,
-            model: c.model,
-            active: c.isActive,
-          })),
-        );
-      }
+      logger.info("CameraManager initialized");
 
       // Get the active provider from CameraManager
       activeProvider = cameraManager.getActiveProvider();
-      logger.info("Got active camera provider from CameraManager");
+      if (activeProvider?.isConnected()) {
+        logger.info("Camera connected and ready");
+      } else {
+        logger.info("CameraManager initialized, waiting for camera");
+      }
     } catch (error) {
       logger.warn(
         "CameraManager initialization failed, will retry on first capture",
@@ -212,26 +229,123 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
     // Subscribe camera events to WebSocket
     try {
       const wsServer = initializeCameraWebSocket(app);
-      const cameraService = getCameraService();
 
       // Subscribe to camera events and forward to WebSocket
       cameraManager.on("camera:connected", (data) => {
+        logger.info("WebSocket: Camera connected event", { model: data.model });
         wsServer.emitConnected(data.model || "Unknown", data.battery || 100);
       });
 
       cameraManager.on("camera:disconnected", (data) => {
-        wsServer.emitDisconnected(data.reason);
+        logger.warn("WebSocket: Camera disconnected event", {
+          reason: data.reason,
+        });
+        wsServer.emitDisconnected(data.reason || "Camera disconnected");
       });
 
       cameraManager.on("camera:ready", (data) => {
+        logger.info("WebSocket: Camera ready event");
         wsServer.emitReady(data);
       });
 
       cameraManager.on("camera:busy", (data) => {
+        logger.debug("WebSocket: Camera busy event", {
+          operation: data.operation,
+        });
         wsServer.emitBusy(data.operation);
       });
 
-      logger.info("Camera events subscribed to WebSocket");
+      // NEW: Recovery events
+      cameraManager.on("camera:recovery:started", (data) => {
+        logger.info("WebSocket: Camera recovery started", {
+          attempt: data.attempt,
+        });
+        wsServer.broadcast({
+          type: "camera:recovery:started",
+          data: {
+            attempt: data.attempt,
+            timestamp: data.timestamp,
+            message: `Camera recovery attempt ${data.attempt} in progress...`,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      cameraManager.on("camera:recovery:success", (data) => {
+        logger.info("WebSocket: Camera recovery successful");
+        wsServer.broadcast({
+          type: "camera:recovery:success",
+          data: {
+            cameraId: data.cameraId,
+            timestamp: data.timestamp,
+            message: "Camera recovered successfully!",
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      cameraManager.on("camera:recovery:failed", (data) => {
+        logger.error("WebSocket: Camera recovery failed", {
+          error: data.error,
+        });
+        wsServer.broadcast({
+          type: "camera:recovery:failed",
+          data: {
+            attempt: data.attempt,
+            error: data.error,
+            timestamp: data.timestamp,
+            message: `Camera recovery failed: ${data.error}`,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      // NEW: Health status changes
+      cameraManager.on("camera:status_changed", (data) => {
+        logger.info("WebSocket: Camera status changed", {
+          oldStatus: data.oldStatus,
+          newStatus: data.newStatus,
+        });
+        wsServer.broadcast({
+          type: "camera:status_changed",
+          data: {
+            oldStatus: data.oldStatus,
+            newStatus: data.newStatus,
+            timestamp: data.timestamp,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      // NEW: Warming up state
+      cameraManager.on("warming_up", (data) => {
+        logger.info("WebSocket: Camera warming up");
+        wsServer.broadcast({
+          type: "camera:warming_up",
+          data: {
+            timestamp: data.timestamp,
+            message: "Camera is warming up, please wait...",
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      // NEW: Camera available
+      cameraManager.on("camera_available", (data) => {
+        logger.info("WebSocket: Camera now available");
+        wsServer.broadcast({
+          type: "camera:available",
+          data: {
+            cameraId: data.cameraId,
+            timestamp: data.timestamp,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      logger.info(
+        "Camera events subscribed to WebSocket (with recovery/health events)",
+      );
     } catch (error) {
       logger.warn("Failed to subscribe camera events to WebSocket:", error);
     }

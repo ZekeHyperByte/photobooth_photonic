@@ -308,58 +308,18 @@ export class EdsSdkError extends CameraError {
 // Error Code Mapping
 // ============================================================================
 
-import * as C from "./bindings/constants";
-
-/**
- * Map EDSDK error codes to typed errors
- */
-export function mapEdsErrorToTypedError(
-  code: number,
-  context?: Partial<Omit<CameraErrorContext, "timestamp">>,
-): CameraError {
-  const message = C.edsErrorToString(code);
-
-  switch (code) {
-    case C.EDS_ERR_DEVICE_MEMORY_FULL:
-      return new CardFullError(context);
-
-    case C.EDS_ERR_FILE_WRITE_ERROR:
-    case C.EDS_ERR_FILE_PERMISSION_ERROR:
-      return new CardWriteError(context);
-
-    case C.EDS_ERR_TAKE_PICTURE_NO_CARD_NG:
-      return new CardNotPresentError(context);
-
-    case C.EDS_ERR_DEVICE_BUSY:
-      return new CamerasBusyError(context);
-
-    case C.EDS_ERR_DEVICE_NOT_FOUND:
-    case C.EDS_ERR_SESSION_NOT_OPEN:
-      return new CameraNotConnectedError(context);
-
-    default:
-      return new EdsSdkError(code, message, context);
-  }
-}
-
 /**
  * Check if an error is retryable (transient)
  */
 export function isRetryableError(error: Error): boolean {
   if (error instanceof CameraError) {
-    // Transient errors that warrant a retry
-    if (error instanceof EdsSdkError) {
-      const retryableCodes = [
-        C.EDS_ERR_COMM_USB_BUS_ERR,
-        C.EDS_ERR_DEVICE_BUSY,
-        C.EDS_ERR_TAKE_PICTURE_AF_NG,
-        C.EDS_ERR_OPERATION_CANCELLED,
-      ];
-      return retryableCodes.includes(error.edsSdkCode);
-    }
-
     // Network/connection errors are retryable
     if (error instanceof CameraNotConnectedError) {
+      return true;
+    }
+
+    // Timeout errors can be retried
+    if (error instanceof CaptureTimeoutError) {
       return true;
     }
   }

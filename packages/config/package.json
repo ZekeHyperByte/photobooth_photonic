@@ -7,6 +7,14 @@
   "types": "./dist/esm/index.d.ts",
   "exports": {
     ".": {
+      "browser": {
+        "types": "./dist/esm/browser.d.ts",
+        "default": "./dist/esm/browser.js"
+      },
+      "node": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
       "import": {
         "types": "./dist/esm/index.d.ts",
         "default": "./dist/esm/index.js"
@@ -15,6 +23,14 @@
         "types": "./dist/cjs/index.d.ts",
         "default": "./dist/cjs/index.js"
       }
+    },
+    "./browser": {
+      "types": "./dist/esm/browser.d.ts",
+      "default": "./dist/esm/browser.js"
+    },
+    "./node": {
+      "types": "./dist/esm/node.d.ts",
+      "default": "./dist/esm/node.js"
     }
   },
   "scripts": {

@@ -1,21 +1,11 @@
 /**
  * Camera Module
- * Provides camera control abstraction with EDSDK integration (Windows-only)
+ * Python gphoto2 Only - Linux Deployment
  */
 
 // Types
 export * from "./types";
 export * from "./errors";
-
-// State Machine (New Architecture)
-export * from "./state-machine";
-
-// Event Pump
-export {
-  CameraEventPump,
-  getGlobalEventPump,
-  stopGlobalEventPump,
-} from "./event-pump";
 
 // Watchdog
 export { CameraWatchdog, type WatchdogStatus } from "./watchdog";
@@ -23,19 +13,30 @@ export { CameraWatchdog, type WatchdogStatus } from "./watchdog";
 // Mutex
 export { CaptureMutex, type CaptureQueueMode } from "./mutex";
 
-// Providers
-export { CameraProvider } from "./types";
-export { MockProvider } from "./providers/mock";
-export { EdsdkProvider } from "./providers/edsdk";
-export { EdsdkV2Provider } from "./providers/edsdk-v2";
-export { WebcamProvider } from "./providers/webcam";
+// Camera Manager
 export {
-  createProvider,
-  getAvailableProviders,
-  getProviderDisplayName,
-  getRecommendedProvider,
-  ProviderType,
-} from "./providers/factory";
+  CameraManager,
+  getCameraManager,
+  resetCameraManager,
+  type CameraManagerHealth,
+} from "./camera-manager";
+
+// USB Reset
+export {
+  performCameraReset,
+  resetGphoto2Processes,
+  findCanonCamera,
+  resetUSBBus,
+  waitForCamera,
+  isCameraAccessible,
+  installUSBReset,
+  type USBResetResult,
+  type CameraUSBInfo,
+} from "./usb-reset";
+
+// Python gphoto2 Provider
+export { PythonGPhoto2Provider } from "./python-gphoto2-provider";
+export { CameraProvider } from "./types";
 
 // Logger
 export { cameraLogger } from "./logger";

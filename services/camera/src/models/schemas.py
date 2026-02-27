@@ -36,6 +36,7 @@ class CaptureResponse(BaseModel):
     image_path: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
+    error_type: Optional[str] = None
     capture_time_ms: Optional[int] = None
 
 

@@ -30,6 +30,8 @@ class CameraConfig:
     aperture_liveview: str = "4.0"
     
     # Capture settings (quality)
+    # Exposure mode: "P" (Program/Auto), "TV" (Shutter Priority), "AV" (Aperture Priority), "Manual"
+    exposure_mode: str = "P"  # Default to auto-exposure
     iso_capture: str = "100"
     shutter_speed_capture: str = "1/125"
     aperture_capture: str = "5.6"
@@ -63,6 +65,35 @@ class CaptureResult:
     image_path: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+    error_type: Optional[str] = None
+
+
+def is_autofocus_failure(error_str: str) -> bool:
+    """
+    Detect if error is related to autofocus failure.
+    
+    Args:
+        error_str: Error message string
+        
+    Returns:
+        True if error is AF-related
+    """
+    if not error_str:
+        return False
+    
+    af_keywords = [
+        "focus",
+        "autofocus",
+        "could not focus",
+        "focus not achieved",
+        "lens not attached",
+        "unable to focus",
+        "focus failed",
+        "af failed",
+    ]
+    
+    error_lower = error_str.lower()
+    return any(keyword in error_lower for keyword in af_keywords)
 
 
 class GPhoto2Backend:
@@ -254,12 +285,37 @@ class GPhoto2Backend:
                 except Exception as e:
                     logger.warning(f"Could not disable viewfinder: {e}")
             
-            # Set capture optimized settings
-            if self.config.iso_capture:
-                self._set_config("iso", self.config.iso_capture)
-            
-            if self.config.shutter_speed_capture:
-                self._set_config("shutterspeed", self.config.shutter_speed_capture)
+            # Set exposure mode (Auto or Manual)
+            try:
+                if self.config.exposure_mode == "P":
+                    # Program mode (Auto) - camera decides all settings
+                    self._set_config("autoexposuremode", "P")
+                    logger.info("Camera set to Auto-exposure (Program mode)")
+                elif self.config.exposure_mode == "TV":
+                    # Shutter Priority
+                    self._set_config("autoexposuremode", "TV")
+                    if self.config.shutter_speed_capture:
+                        self._set_config("shutterspeed", self.config.shutter_speed_capture)
+                    logger.info("Camera set to Shutter Priority mode")
+                elif self.config.exposure_mode == "AV":
+                    # Aperture Priority
+                    self._set_config("autoexposuremode", "AV")
+                    logger.info("Camera set to Aperture Priority mode")
+                else:
+                    # Manual mode - use all manual settings
+                    self._set_config("autoexposuremode", "Manual")
+                    if self.config.iso_capture:
+                        self._set_config("iso", self.config.iso_capture)
+                    if self.config.shutter_speed_capture:
+                        self._set_config("shutterspeed", self.config.shutter_speed_capture)
+                    logger.info("Camera set to Manual mode")
+            except Exception as e:
+                logger.warning(f"Could not set exposure mode: {e}")
+                # Fallback to manual settings
+                if self.config.iso_capture:
+                    self._set_config("iso", self.config.iso_capture)
+                if self.config.shutter_speed_capture:
+                    self._set_config("shutterspeed", self.config.shutter_speed_capture)
             
             if self.config.canon_eosmoviemode:
                 try:
@@ -289,6 +345,7 @@ class GPhoto2Backend:
             'frame_count': 0,
             'dropped_frames': 0,
             'last_frame_time': time.time(),
+            'capture_count': 0,
         }
         
         self._liveview_active = True
@@ -316,6 +373,7 @@ class GPhoto2Backend:
         Capture a single live view frame.
         
         Returns JPEG bytes or None if not available.
+        Optimized for non-blocking operation with Canon EOS 550D.
         """
         if not self.is_connected():
             raise RuntimeError("Camera not connected")
@@ -326,12 +384,14 @@ class GPhoto2Backend:
         # Track frame request time
         self._last_frame_request_time = time.time()
         
-        # Frame rate limiting
+        # Frame rate limiting - just check if we should skip this frame
+        # Don't block/sleep here - let the caller handle timing
         min_frame_time = 1.0 / self.config.frame_rate_cap
         time_since_last = time.time() - self._liveview_stats['last_frame_time']
         
         if time_since_last < min_frame_time:
-            time.sleep(min_frame_time - time_since_last)
+            # Frame too soon - return empty to let caller handle timing
+            return None
         
         try:
             # Capture preview frame
@@ -343,6 +403,11 @@ class GPhoto2Backend:
                 img_bytes = file_data.tobytes()
             else:
                 img_bytes = bytes(file_data)
+            
+            # Validate frame
+            if len(img_bytes) < 1000:
+                logger.warning(f"Frame too small: {len(img_bytes)} bytes")
+                return None
             
             # Update stats
             now = time.time()
@@ -361,7 +426,21 @@ class GPhoto2Backend:
             
         except Exception as e:
             self._consecutive_errors += 1
-            logger.warning(f"Error capturing preview frame ({self._consecutive_errors}/{self._max_consecutive_errors}): {type(e).__name__}: {e}")
+            error_str = str(e).lower()
+            
+            # Check if it's an I/O in progress error (USB conflict)
+            is_io_error = (
+                "i/o in progress" in error_str or
+                "-110" in error_str or
+                "io error" in error_str
+            )
+            
+            if is_io_error:
+                logger.debug(f"I/O in progress error ({self._consecutive_errors}/{self._max_consecutive_errors}): {e}")
+                # Brief sleep to let USB clear
+                time.sleep(0.05)
+            else:
+                logger.warning(f"Error capturing preview frame ({self._consecutive_errors}/{self._max_consecutive_errors}): {type(e).__name__}: {e}")
             
             if self._consecutive_errors >= self._max_consecutive_errors:
                 logger.error("Too many consecutive errors, stopping live view")
@@ -455,8 +534,19 @@ class GPhoto2Backend:
             )
             
         except Exception as e:
-            logger.error(f"Capture failed: {e}")
-            return CaptureResult(success=False, error=str(e))
+            error_msg = str(e)
+            logger.error(f"Capture failed: {error_msg}")
+            
+            # Detect autofocus failure
+            if is_autofocus_failure(error_msg):
+                logger.warning(f"Autofocus failure detected: {error_msg}")
+                return CaptureResult(
+                    success=False, 
+                    error=error_msg,
+                    error_type="AUTOFOCUS_FAILED"
+                )
+            
+            return CaptureResult(success=False, error=error_msg)
         
         finally:
             # Resume live view if it was active
@@ -464,6 +554,18 @@ class GPhoto2Backend:
                 logger.debug("Resuming live view after capture")
                 self._configure_for_liveview()
                 self._liveview_active = True
+                
+                # Reset stats to prevent stale data accumulation
+                self._liveview_stats = {
+                    'fps': 0.0,
+                    'frame_count': 0,
+                    'dropped_frames': 0,
+                    'last_frame_time': time.time(),
+                    'capture_count': 0,
+                }
+                self._consecutive_errors = 0
+                
+                logger.info("Live view resumed and stats reset after capture")
     
     def _get_capture_metadata(self) -> Dict[str, Any]:
         """Get metadata from last capture"""

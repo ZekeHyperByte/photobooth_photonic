@@ -1,9 +1,11 @@
 /**
  * Admin Camera Routes
  *
- * GET    /api/admin/cameras        - List all discovered cameras
- * POST   /api/admin/cameras/select - Select active camera
- * POST   /api/admin/cameras/standby - Set standby camera for failover
+ * GET    /api/admin/cameras        - Get camera status
+ * POST   /api/admin/cameras/select - No-op (single camera only)
+ * POST   /api/admin/cameras/standby - No-op (no failover support)
+ *
+ * Note: This is simplified for single python-gphoto2 camera deployment.
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
@@ -16,42 +18,41 @@ const logger = createLogger("admin-cameras");
 export async function adminCameraRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/admin/cameras
-   * List all discovered cameras with their status
+   * Get camera status (simplified for single camera)
    */
   fastify.get(
     "/api/admin/cameras",
     async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
         const cameraManager = getCameraManager();
+        const status = await cameraManager.getStatus();
 
-        // Ensure manager is initialized
-        if (!cameraManager.getActiveCameraId()) {
-          await cameraManager.initialize();
-        }
-
-        const cameras = cameraManager.getCameras();
-        const activeCameraId = cameraManager.getActiveCameraId();
-        const standbyCameraId = cameraManager.getStandbyCameraId();
-
-        logger.info("Admin: Listed cameras", {
-          count: cameras.length,
-          activeCameraId,
-          standbyCameraId,
+        logger.info("Admin: Retrieved camera status", {
+          connected: status.connected,
+          model: status.model,
         });
 
         return reply.code(HTTP_STATUS.OK).send({
           success: true,
           data: {
-            cameras,
-            activeCameraId,
-            standbyCameraId,
+            cameras: [
+              {
+                id: "python-gphoto2",
+                model: status.model || "Canon DSLR",
+                port: "USB",
+                isActive: status.connected,
+                isStandby: false,
+              },
+            ],
+            activeCameraId: status.connected ? "python-gphoto2" : null,
+            standbyCameraId: null,
           },
         });
       } catch (error: any) {
-        logger.error("Admin: Failed to list cameras:", error);
+        logger.error("Admin: Failed to get camera status:", error);
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
-          error: "Failed to list cameras",
+          error: "Failed to get camera status",
           message: error.message,
         });
       }
@@ -60,99 +61,39 @@ export async function adminCameraRoutes(fastify: FastifyInstance) {
 
   /**
    * POST /api/admin/cameras/select
-   * Select a camera as the active camera
-   *
-   * Body: { cameraId: string }
+   * No-op: Only one camera supported
    */
   fastify.post(
     "/api/admin/cameras/select",
     async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const body = request.body as { cameraId: string };
+      logger.info("Admin: Camera select called (no-op for single camera)");
 
-        if (!body.cameraId) {
-          return reply.code(HTTP_STATUS.BAD_REQUEST).send({
-            success: false,
-            error: "Missing cameraId",
-            message: "cameraId is required in request body",
-          });
-        }
-
-        const cameraManager = getCameraManager();
-        await cameraManager.selectCamera(body.cameraId);
-
-        const camera = cameraManager.getCamera(body.cameraId);
-
-        logger.info("Admin: Camera selected", {
-          cameraId: body.cameraId,
-          model: camera?.model,
-        });
-
-        return reply.code(HTTP_STATUS.OK).send({
-          success: true,
-          message: `Camera ${camera?.model || body.cameraId} is now active`,
-          data: {
-            cameraId: body.cameraId,
-            camera,
-          },
-        });
-      } catch (error: any) {
-        logger.error("Admin: Failed to select camera:", error);
-        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
-          success: false,
-          error: "Failed to select camera",
-          message: error.message,
-        });
-      }
+      return reply.code(HTTP_STATUS.OK).send({
+        success: true,
+        message: "Single camera mode - selection not required",
+        data: {
+          cameraId: "python-gphoto2",
+        },
+      });
     },
   );
 
   /**
    * POST /api/admin/cameras/standby
-   * Set a camera as standby for failover
-   *
-   * Body: { cameraId: string }
+   * No-op: No failover support
    */
   fastify.post(
     "/api/admin/cameras/standby",
     async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const body = request.body as { cameraId: string };
+      logger.info("Admin: Camera standby called (no-op for single camera)");
 
-        if (!body.cameraId) {
-          return reply.code(HTTP_STATUS.BAD_REQUEST).send({
-            success: false,
-            error: "Missing cameraId",
-            message: "cameraId is required in request body",
-          });
-        }
-
-        const cameraManager = getCameraManager();
-        await cameraManager.setStandby(body.cameraId);
-
-        const camera = cameraManager.getCamera(body.cameraId);
-
-        logger.info("Admin: Camera set as standby", {
-          cameraId: body.cameraId,
-          model: camera?.model,
-        });
-
-        return reply.code(HTTP_STATUS.OK).send({
-          success: true,
-          message: `Camera ${camera?.model || body.cameraId} is now standby`,
-          data: {
-            cameraId: body.cameraId,
-            camera,
-          },
-        });
-      } catch (error: any) {
-        logger.error("Admin: Failed to set standby camera:", error);
-        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
-          success: false,
-          error: "Failed to set standby camera",
-          message: error.message,
-        });
-      }
+      return reply.code(HTTP_STATUS.OK).send({
+        success: true,
+        message: "No failover support in single camera mode",
+        data: {
+          cameraId: null,
+        },
+      });
     },
   );
 

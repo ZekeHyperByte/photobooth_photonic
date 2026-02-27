@@ -47,7 +47,8 @@ const App: React.FC = () => {
   const { currentScreen, resetToIdle } = useUIStore();
   const { resetPhotos } = usePhotoStore();
   const { resetSession } = useSessionStore();
-  const { camera, dismissBatteryWarning } = useCameraStore();
+  const { camera, dismissBatteryWarning, batteryWarningDismissed } =
+    useCameraStore();
 
   // Initialize WebSocket connection for camera events
   useCameraWebSocket();
@@ -62,8 +63,10 @@ const App: React.FC = () => {
     resetSession();
   }, [resetToIdle, resetPhotos, resetSession]);
 
-  // Auto-reset to idle after 60 seconds of inactivity
-  useInactivity(60000, resetAllState);
+  // Auto-reset to idle after 60 seconds of inactivity (only on idle screen)
+  // Prevents interruption during active photo sessions
+  const isIdleScreen = currentScreen === "idle";
+  useInactivity(isIdleScreen ? 60000 : Infinity, resetAllState);
 
   // Reset all state on mount (fresh start)
   useEffect(() => {
@@ -124,6 +127,7 @@ const App: React.FC = () => {
         <SessionTimer />
         <BatteryWarningToast
           level={camera.battery}
+          dismissed={batteryWarningDismissed}
           onDismiss={dismissBatteryWarning}
         />
       </div>

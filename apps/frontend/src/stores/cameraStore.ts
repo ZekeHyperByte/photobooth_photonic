@@ -86,10 +86,20 @@ export const useCameraStore = create<CameraStoreState>((set) => ({
   batteryWarningDismissed: false,
 
   setCameraStatus: (status) =>
-    set((state) => ({
-      camera: { ...state.camera, ...status },
-      lastUpdate: new Date().toISOString(),
-    })),
+    set((state) => {
+      const newBattery = status.battery ?? state.camera.battery;
+      // Auto-reset dismissal when battery improves above threshold (20%)
+      const shouldResetDismissal =
+        state.batteryWarningDismissed && newBattery > 20;
+
+      return {
+        camera: { ...state.camera, ...status },
+        batteryWarningDismissed: shouldResetDismissal
+          ? false
+          : state.batteryWarningDismissed,
+        lastUpdate: new Date().toISOString(),
+      };
+    }),
 
   updateFromWebSocket: (event) => {
     const { type, data } = event;
@@ -160,7 +170,8 @@ export const useCameraStore = create<CameraStoreState>((set) => ({
             ...state.camera,
             battery: data.level ?? state.camera.battery,
           },
-          batteryWarningDismissed: false, // Reset dismissed state
+          // Don't reset batteryWarningDismissed here - let user control dismissal
+          // The warning will show/hide based on level vs threshold in the component
           lastUpdate: new Date().toISOString(),
         }));
         break;

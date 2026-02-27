@@ -1,4 +1,12 @@
+/**
+ * Preview Stream Manager
+ *
+ * Manages MJPEG preview streams from the camera to multiple HTTP clients.
+ * Handles frame extraction, broadcasting, and lifecycle management.
+ */
+
 import { ServerResponse } from "http";
+import { EventEmitter } from "events";
 import { createLogger } from "@photonic/utils";
 import { getCameraService } from "./camera-service";
 import { nanoid } from "nanoid";
@@ -13,7 +21,22 @@ interface Client {
   res: ServerResponse;
 }
 
-class PreviewStreamManager {
+// Helper function for timestamped logging
+function logWithTimestamp(
+  level: "info" | "debug" | "error" | "warn",
+  message: string,
+  meta?: any,
+) {
+  const timestamp = new Date().toISOString();
+  const prefix = `[${timestamp}] [PreviewManager]`;
+  if (meta) {
+    logger[level](`${prefix} ${message}`, meta);
+  } else {
+    logger[level](`${prefix} ${message}`);
+  }
+}
+
+class PreviewStreamManager extends EventEmitter {
   private clients: Map<string, Client> = new Map();
   private loopRunning = false;
   private loopStoppedResolve: (() => void) | null = null;
@@ -21,14 +44,21 @@ class PreviewStreamManager {
   private previewStream: NodeJS.ReadableStream | null = null;
   private frameBuffer: Buffer = Buffer.alloc(0);
   private isCollectingFrame = false;
+  private firstFrameSent = false;
 
   addClient(res: ServerResponse): string {
     const id = nanoid();
     this.clients.set(id, { id, res });
-    logger.info(`Preview client added: ${id} (total: ${this.clients.size})`);
+    logWithTimestamp(
+      "info",
+      `Client added: ${id} (total: ${this.clients.size})`,
+    );
 
     if (!this.loopRunning) {
+      logWithTimestamp("debug", "Starting preview loop...");
       this.startLoop();
+    } else {
+      logWithTimestamp("debug", "Loop already running, reusing existing loop");
     }
 
     return id;
@@ -36,15 +66,37 @@ class PreviewStreamManager {
 
   removeClient(id: string): void {
     this.clients.delete(id);
-    logger.info(`Preview client removed: ${id} (total: ${this.clients.size})`);
+    logWithTimestamp(
+      "info",
+      `Client removed: ${id} (total: ${this.clients.size})`,
+    );
 
     if (this.clients.size === 0) {
+      logWithTimestamp("debug", "No more clients, stopping loop");
       this.stopLoop();
     }
   }
 
   async stopAll(): Promise<void> {
+    logWithTimestamp(
+      "info",
+      `Stopping all ${this.clients.size} clients and cleaning up...`,
+    );
     this.loopRunning = false;
+
+    // CRITICAL FIX: Remove all listeners from preview stream to prevent memory leaks
+    if (this.previewStream) {
+      logWithTimestamp("debug", "Removing stream listeners");
+      this.previewStream.removeAllListeners();
+      this.previewStream = null;
+    }
+
+    // Clear frame buffer
+    this.frameBuffer = Buffer.alloc(0);
+    this.isCollectingFrame = false;
+    logWithTimestamp("debug", "Frame buffer cleared");
+
+    // Close all client connections
     for (const [id, client] of this.clients) {
       try {
         client.res.end();
@@ -53,10 +105,19 @@ class PreviewStreamManager {
       }
     }
     this.clients.clear();
+    logWithTimestamp("debug", "All client connections closed");
+
+    // Wait for loop to fully stop
     if (this.loopStopped) {
+      logWithTimestamp("debug", "Waiting for loop to stop...");
       await this.loopStopped;
+      logWithTimestamp("debug", "Loop stopped");
     }
-    logger.info("All preview clients stopped");
+
+    logWithTimestamp(
+      "info",
+      "All preview clients stopped and state cleaned up",
+    );
   }
 
   get clientCount(): number {
@@ -69,7 +130,8 @@ class PreviewStreamManager {
    */
   restartPreview(): void {
     if (this.clients.size > 0 && !this.loopRunning) {
-      logger.info(
+      logWithTimestamp(
+        "info",
         `Restarting preview stream (${this.clients.size} clients connected)`,
       );
       this.startLoop();
@@ -77,7 +139,24 @@ class PreviewStreamManager {
   }
 
   private startLoop(): void {
-    if (this.loopRunning) return;
+    if (this.loopRunning) {
+      logWithTimestamp("warn", "Loop already running, skipping start");
+      return;
+    }
+
+    // CRITICAL FIX: Clean up any existing stream before starting new one
+    if (this.previewStream) {
+      logWithTimestamp(
+        "warn",
+        "Old preview stream exists, cleaning up before new loop",
+      );
+      this.previewStream.removeAllListeners();
+      this.previewStream = null;
+      this.frameBuffer = Buffer.alloc(0);
+    }
+
+    // Reset first frame flag for this session
+    this.firstFrameSent = false;
 
     this.loopRunning = true;
     this.loopStopped = new Promise((resolve) => {
@@ -85,13 +164,14 @@ class PreviewStreamManager {
     });
     const cameraService = getCameraService();
 
-    logger.info("Preview loop started");
+    logWithTimestamp("info", "Preview loop started");
 
     const run = async () => {
       try {
         // Start CLI-based preview stream
-        logger.info("Starting CLI preview stream...");
+        logWithTimestamp("info", "Starting CLI preview stream...");
         this.previewStream = await cameraService.startPreviewStream();
+        logWithTimestamp("info", "CLI preview stream started successfully");
 
         let frameCount = 0;
         let errorCount = 0;
@@ -113,17 +193,26 @@ class PreviewStreamManager {
               consecutiveErrors = 0;
 
               if (frameCount === 1) {
-                logger.info(
+                logWithTimestamp(
+                  "info",
                   `First preview frame broadcast (${frame.length} bytes)`,
                 );
+                // Emit event to notify that first frame is sent (clears timeout)
+                if (!this.firstFrameSent) {
+                  this.firstFrameSent = true;
+                  this.emit("firstFrame", { frameCount, frameLength: frame.length });
+                }
               }
             } catch (err: any) {
               errorCount++;
               consecutiveErrors++;
-              logger.error(`Broadcast error: ${err.message}`);
+              logWithTimestamp("error", `Broadcast error: ${err.message}`);
 
               if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                logger.error(`Too many consecutive errors, stopping stream`);
+                logWithTimestamp(
+                  "error",
+                  `Too many consecutive errors (${consecutiveErrors}), stopping stream`,
+                );
                 this.loopRunning = false;
               }
             }
@@ -131,17 +220,21 @@ class PreviewStreamManager {
         });
 
         this.previewStream.on("error", (err: Error) => {
-          logger.error("Preview stream error:", err.message);
+          logWithTimestamp("error", `Preview stream error: ${err.message}`);
           errorCount++;
           consecutiveErrors++;
 
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            logWithTimestamp(
+              "error",
+              `Max consecutive errors reached, stopping loop`,
+            );
             this.loopRunning = false;
           }
         });
 
         this.previewStream.on("end", () => {
-          logger.info("Preview stream ended");
+          logWithTimestamp("info", "Preview stream ended");
           this.loopRunning = false;
         });
 
@@ -150,22 +243,42 @@ class PreviewStreamManager {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
 
-        logger.info(
+        logWithTimestamp(
+          "info",
           `Preview loop stats: ${frameCount} frames sent, ${errorCount} errors`,
         );
       } catch (err: any) {
-        logger.error("Preview loop error:", err.message);
+        logWithTimestamp("error", `Preview loop error: ${err.message}`);
       } finally {
         this.loopRunning = false;
 
-        // Stop camera preview stream
-        try {
-          await cameraService.stopPreviewStream();
-        } catch (err: any) {
-          logger.error("Error stopping preview stream:", err.message);
+        // CRITICAL FIX: Clean up stream listeners
+        if (this.previewStream) {
+          logWithTimestamp(
+            "debug",
+            "Cleaning up stream listeners in finally block",
+          );
+          this.previewStream.removeAllListeners();
+          this.previewStream = null;
         }
 
-        logger.info("Preview loop ended");
+        // Clear frame buffer
+        this.frameBuffer = Buffer.alloc(0);
+        this.isCollectingFrame = false;
+
+        // Stop camera preview stream
+        try {
+          logWithTimestamp("debug", "Stopping camera preview stream...");
+          await cameraService.stopPreviewStream();
+          logWithTimestamp("debug", "Camera preview stream stopped");
+        } catch (err: any) {
+          logWithTimestamp(
+            "error",
+            `Error stopping preview stream: ${err.message}`,
+          );
+        }
+
+        logWithTimestamp("info", "Preview loop ended");
         this.loopStoppedResolve?.();
         this.loopStopped = null;
         this.loopStoppedResolve = null;
@@ -222,6 +335,7 @@ class PreviewStreamManager {
   }
 
   private stopLoop(): void {
+    logWithTimestamp("debug", "Stop loop requested");
     this.loopRunning = false;
   }
 
@@ -246,10 +360,11 @@ class PreviewStreamManager {
 
     for (const id of deadClients) {
       this.clients.delete(id);
-      logger.info(`Dead preview client removed: ${id}`);
+      logWithTimestamp("info", `Dead preview client removed: ${id}`);
     }
 
     if (this.clients.size === 0) {
+      logWithTimestamp("debug", "No clients remaining, stopping loop");
       this.stopLoop();
     }
   }
