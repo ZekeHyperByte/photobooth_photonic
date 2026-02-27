@@ -129,7 +129,7 @@ module.exports = {
     {
       name: "photonic-backend",
       cwd: "$INSTALL_DIR/apps/backend",
-      script: "../../node_modules/.bin/tsx",
+      script: "./node_modules/.bin/tsx",
       args: "dist/index.js",
       exec_mode: "fork",
       instances: 1,
