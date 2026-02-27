@@ -38,6 +38,9 @@ class CaptureResponse(BaseModel):
     error: Optional[str] = None
     error_type: Optional[str] = None
     capture_time_ms: Optional[int] = None
+    forced_capture: bool = False
+    attempts: int = 0
+    warning: Optional[str] = None
 
 
 class ConfigUpdateRequest(BaseModel):

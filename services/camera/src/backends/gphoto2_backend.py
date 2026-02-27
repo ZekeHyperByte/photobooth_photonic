@@ -37,7 +37,7 @@ class CameraConfig:
     aperture_capture: str = "5.6"
     
     # Optimization flags
-    disable_viewfinder_before_capture: bool = True
+    disable_viewfinder_before_capture: bool = False
     canon_eosmoviemode: bool = False
     
     # Focus settings
@@ -70,6 +70,9 @@ class CaptureResult:
     metadata: Dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
     error_type: Optional[str] = None
+    forced_capture: bool = False
+    attempts: int = 0
+    warning: Optional[str] = None
 
 
 def is_autofocus_failure(error_str: str) -> bool:
@@ -463,7 +466,7 @@ class GPhoto2Backend:
     
     def capture_photo(self, output_path: str) -> CaptureResult:
         """
-        Capture a high-quality photo.
+        Capture a high-quality photo with AF retry and live view recovery.
         
         Args:
             output_path: Path to save the captured image
@@ -476,108 +479,230 @@ class GPhoto2Backend:
         
         logger.info(f"Capturing photo to {output_path}")
         
-        # Temporarily stop live view for capture
-        was_liveview = self._liveview_active
-        if was_liveview:
-            logger.debug("Pausing live view for capture")
-            self._liveview_active = False
+        # Configuration
+        max_attempts = 3
+        retry_delay = 0.5  # 500ms between attempts
+        forced_capture = False
+        original_focus_mode = None
         
-        try:
-            # Configure for capture
-            self._configure_for_capture()
+        for attempt in range(1, max_attempts + 1):
+            logger.info(f"Capture attempt {attempt}/{max_attempts}")
             
-            # Small delay for settings to take effect
-            time.sleep(0.1)
-            
-            # Capture image
-            logger.debug("Triggering capture...")
-            file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
-            
-            # Wait for file to be ready
-            time.sleep(0.2)
-            
-            # Clear event queue
-            captured_files = [(file_path.folder, file_path.name)]
-            
-            evt_typ, evt_data = self._camera.wait_for_event(200)
-            while evt_typ != gp.GP_EVENT_TIMEOUT:
-                logger.debug(f"Event: {self._event_texts.get(evt_typ, 'unknown')}")
-                
-                if evt_typ == gp.GP_EVENT_FILE_ADDED:
-                    captured_files.append((evt_data.folder, evt_data.name))
-                
-                evt_typ, evt_data = self._camera.wait_for_event(10)
-            
-            logger.debug(f"Captured files: {captured_files}")
-            
-            # Find JPEG file
-            file_to_download = None
-            for folder, name in captured_files:
-                if name.lower().endswith(('.jpg', '.jpeg')):
-                    file_to_download = (folder, name)
-                    break
-            
-            if not file_to_download:
-                return CaptureResult(success=False, error="No JPEG file captured")
-            
-            # Download file
-            logger.debug(f"Downloading {file_to_download[1]}...")
-            camera_file = self._camera.file_get(
-                file_to_download[0],
-                file_to_download[1],
-                gp.GP_FILE_TYPE_NORMAL
-            )
-            
-            # Save to output path
-            camera_file.save(output_path)
-            
-            # Get metadata
-            metadata = self._get_capture_metadata()
-            
-            # Update capture count
-            self._liveview_stats['capture_count'] += 1
-            
-            logger.info(f"Photo captured successfully: {output_path}")
-            
-            return CaptureResult(
-                success=True,
-                image_path=output_path,
-                metadata=metadata
-            )
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Capture failed: {error_msg}")
-            
-            # Detect autofocus failure
-            if is_autofocus_failure(error_msg):
-                logger.warning(f"Autofocus failure detected: {error_msg}")
-                return CaptureResult(
-                    success=False, 
-                    error=error_msg,
-                    error_type="AUTOFOCUS_FAILED"
-                )
-            
-            return CaptureResult(success=False, error=error_msg)
-        
-        finally:
-            # Resume live view if it was active
+            # Temporarily stop live view for capture
+            was_liveview = self._liveview_active
             if was_liveview:
-                logger.debug("Resuming live view after capture")
-                self._configure_for_liveview()
-                self._liveview_active = True
+                logger.debug("Pausing live view for capture")
+                self._liveview_active = False
+            
+            try:
+                # Configure for capture
+                self._configure_for_capture()
                 
-                # Reset stats to prevent stale data accumulation
-                self._liveview_stats = {
-                    'fps': 0.0,
-                    'frame_count': 0,
-                    'dropped_frames': 0,
-                    'last_frame_time': time.time(),
-                    'capture_count': 0,
-                }
-                self._consecutive_errors = 0
+                # Small delay for settings to take effect
+                time.sleep(0.1)
                 
-                logger.info("Live view resumed and stats reset after capture")
+                # Capture image
+                logger.debug("Triggering capture...")
+                file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+                
+                # Wait for file to be ready
+                time.sleep(0.2)
+                
+                # Clear event queue
+                captured_files = [(file_path.folder, file_path.name)]
+                
+                evt_typ, evt_data = self._camera.wait_for_event(200)
+                while evt_typ != gp.GP_EVENT_TIMEOUT:
+                    logger.debug(f"Event: {self._event_texts.get(evt_typ, 'unknown')}")
+                    
+                    if evt_typ == gp.GP_EVENT_FILE_ADDED:
+                        captured_files.append((evt_data.folder, evt_data.name))
+                    
+                    evt_typ, evt_data = self._camera.wait_for_event(10)
+                
+                logger.debug(f"Captured files: {captured_files}")
+                
+                # Find JPEG file
+                file_to_download = None
+                for folder, name in captured_files:
+                    if name.lower().endswith(('.jpg', '.jpeg')):
+                        file_to_download = (folder, name)
+                        break
+                
+                if not file_to_download:
+                    return CaptureResult(success=False, error="No JPEG file captured")
+                
+                # Download file
+                logger.debug(f"Downloading {file_to_download[1]}...")
+                camera_file = self._camera.file_get(
+                    file_to_download[0],
+                    file_to_download[1],
+                    gp.GP_FILE_TYPE_NORMAL
+                )
+                
+                # Save to output path
+                camera_file.save(output_path)
+                
+                # Get metadata
+                metadata = self._get_capture_metadata()
+                
+                # Update capture count
+                self._liveview_stats['capture_count'] += 1
+                
+                logger.info(f"Photo captured successfully (attempt {attempt}): {output_path}")
+                
+                return CaptureResult(
+                    success=True,
+                    image_path=output_path,
+                    metadata=metadata,
+                    forced_capture=forced_capture,
+                    attempts=attempt
+                )
+                
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Capture attempt {attempt} failed: {error_msg}")
+                
+                # Check if this is an autofocus failure
+                is_af_failure = is_autofocus_failure(error_msg)
+                
+                if is_af_failure and attempt < max_attempts:
+                    logger.warning(f"Autofocus failure on attempt {attempt}, will retry...")
+                    
+                    # CRITICAL: Restart live view between attempts to prevent frozen frame
+                    if was_liveview:
+                        logger.info("Restarting live view before retry...")
+                        try:
+                            self._configure_for_liveview()
+                            self._liveview_active = True
+                            logger.info("Live view restarted for retry")
+                        except Exception as lv_error:
+                            logger.warning(f"Could not restart live view: {lv_error}")
+                    
+                    # Wait before retry
+                    logger.info(f"Waiting {retry_delay}s before retry...")
+                    time.sleep(retry_delay)
+                    continue  # Try again
+                    
+                elif is_af_failure and attempt == max_attempts:
+                    # Final attempt - try force capture with manual focus
+                    logger.warning("AF failed 3 times, attempting force capture with manual focus...")
+                    
+                    try:
+                        # Save original focus mode
+                        config = self._camera.get_config()
+                        focus_config = config.get_child_by_name('focusmode')
+                        original_focus_mode = focus_config.get_value()
+                        logger.info(f"Original focus mode: {original_focus_mode}")
+                        
+                        # Switch to manual focus
+                        focus_config.set_value('Manual')
+                        self._camera.set_config(config)
+                        logger.info("Switched to Manual focus mode")
+                        
+                        forced_capture = True
+                        
+                        # Retry capture (this is still attempt 3, but with manual focus)
+                        logger.debug("Triggering force capture...")
+                        file_path = self._camera.capture(gp.GP_CAPTURE_IMAGE)
+                        
+                        time.sleep(0.2)
+                        
+                        # Process the forced capture
+                        captured_files = [(file_path.folder, file_path.name)]
+                        
+                        evt_typ, evt_data = self._camera.wait_for_event(200)
+                        while evt_typ != gp.GP_EVENT_TIMEOUT:
+                            if evt_typ == gp.GP_EVENT_FILE_ADDED:
+                                captured_files.append((evt_data.folder, evt_data.name))
+                            evt_typ, evt_data = self._camera.wait_for_event(10)
+                        
+                        file_to_download = None
+                        for folder, name in captured_files:
+                            if name.lower().endswith(('.jpg', '.jpeg')):
+                                file_to_download = (folder, name)
+                                break
+                        
+                        if file_to_download:
+                            camera_file = self._camera.file_get(
+                                file_to_download[0],
+                                file_to_download[1],
+                                gp.GP_FILE_TYPE_NORMAL
+                            )
+                            camera_file.save(output_path)
+                            
+                            metadata = self._get_capture_metadata()
+                            self._liveview_stats['capture_count'] += 1
+                            
+                            logger.warning(f"Force capture succeeded: {output_path}")
+                            
+                            return CaptureResult(
+                                success=True,
+                                image_path=output_path,
+                                metadata=metadata,
+                                forced_capture=True,
+                                warning="Photo captured without autofocus - may be blurry",
+                                attempts=attempt
+                            )
+                            
+                    except Exception as force_error:
+                        logger.error(f"Force capture also failed: {force_error}")
+                        # Fall through to normal error handling
+                
+                # Max retries exceeded or non-AF error
+                if is_af_failure:
+                    return CaptureResult(
+                        success=False,
+                        error=error_msg,
+                        error_type="AUTOFOCUS_FAILED",
+                        attempts=attempt
+                    )
+                else:
+                    return CaptureResult(
+                        success=False,
+                        error=error_msg,
+                        attempts=attempt
+                    )
+            
+            finally:
+                # Restore original focus mode if we changed it
+                if original_focus_mode and forced_capture:
+                    try:
+                        config = self._camera.get_config()
+                        focus_config = config.get_child_by_name('focusmode')
+                        focus_config.set_value(original_focus_mode)
+                        self._camera.set_config(config)
+                        logger.info(f"Restored focus mode to: {original_focus_mode}")
+                    except Exception as restore_error:
+                        logger.warning(f"Could not restore focus mode: {restore_error}")
+                
+                # Resume live view if it was active (and we're not about to retry)
+                if was_liveview:
+                    logger.debug("Resuming live view")
+                    try:
+                        self._configure_for_liveview()
+                        self._liveview_active = True
+                        
+                        # Reset stats
+                        self._liveview_stats = {
+                            'fps': 0.0,
+                            'frame_count': 0,
+                            'dropped_frames': 0,
+                            'last_frame_time': time.time(),
+                            'capture_count': 0,
+                        }
+                        self._consecutive_errors = 0
+                        
+                        logger.info("Live view resumed and stats reset")
+                    except Exception as lv_error:
+                        logger.error(f"Failed to resume live view: {lv_error}")
+        
+        # Should never reach here, but just in case
+        return CaptureResult(
+            success=False,
+            error="All capture attempts exhausted",
+            attempts=max_attempts
+        )
     
     def _get_capture_metadata(self) -> Dict[str, Any]:
         """Get metadata from last capture"""

@@ -367,6 +367,9 @@ async def capture_photo(request: CaptureRequest, background_tasks: BackgroundTas
             error=result.error,
             error_type=result.error_type,
             capture_time_ms=capture_time,
+            forced_capture=getattr(result, 'forced_capture', False),
+            attempts=getattr(result, 'attempts', 1),
+            warning=getattr(result, 'warning', None),
         )
     
     except Exception as e:
