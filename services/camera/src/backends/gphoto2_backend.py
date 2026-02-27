@@ -41,8 +41,9 @@ class CameraConfig:
     canon_eosmoviemode: bool = False
     
     # Focus settings
-    # Set to True to disable autofocus (use manual focus)
-    disable_autofocus: bool = True
+    # Focus mode: "One Shot" (0), "AI Focus" (1), "AI Servo" (2), "Manual" (3)
+    # AI Servo (2) recommended for photobooth - continuous AF, faster capture
+    focus_mode: str = "AI Servo"
     
     # Performance tuning
     frame_rate_cap: int = 20
@@ -268,13 +269,13 @@ class GPhoto2Backend:
             if self.config.shutter_speed_liveview:
                 self._set_config("shutterspeed", self.config.shutter_speed_liveview)
             
-            # Disable autofocus if configured
-            if self.config.disable_autofocus:
+            # Set focus mode (AI Servo recommended for photobooth)
+            if self.config.focus_mode:
                 try:
-                    self._set_config("autofocusmode", "Manual")
-                    logger.info("Autofocus disabled (Manual mode)")
+                    self._set_config("focusmode", self.config.focus_mode)
+                    logger.info(f"Focus mode set to: {self.config.focus_mode}")
                 except Exception as e:
-                    logger.warning(f"Could not disable autofocus: {e}")
+                    logger.warning(f"Could not set focus mode: {e}")
             
             # Enable viewfinder
             self._set_config("viewfinder", 1)
@@ -586,7 +587,7 @@ class GPhoto2Backend:
                     
                 elif is_af_failure and attempt == max_attempts:
                     # Final attempt - try force capture with manual focus
-                    logger.warning("AF failed 3 times, attempting force capture with manual focus...")
+                    logger.warning("AF failed 3 times, attempting force capture...")
                     
                     try:
                         # Save original focus mode
@@ -595,10 +596,16 @@ class GPhoto2Backend:
                         original_focus_mode = focus_config.get_value()
                         logger.info(f"Original focus mode: {original_focus_mode}")
                         
-                        # Switch to manual focus
-                        focus_config.set_value('Manual')
-                        self._camera.set_config(config)
-                        logger.info("Switched to Manual focus mode")
+                        # Try switching to Manual focus for force capture
+                        # Note: This only works if lens switch is in MF position
+                        # If lens is in AF position, this will be ignored by camera
+                        try:
+                            focus_config.set_value('Manual')
+                            self._camera.set_config(config)
+                            logger.info("Attempted switch to Manual focus mode (requires lens in MF position)")
+                        except Exception as mf_error:
+                            logger.warning(f"Could not switch to Manual: {mf_error}")
+                            # Continue anyway - camera might still capture
                         
                         forced_capture = True
                         
@@ -641,7 +648,7 @@ class GPhoto2Backend:
                                 image_path=output_path,
                                 metadata=metadata,
                                 forced_capture=True,
-                                warning="Photo captured without autofocus - may be blurry",
+                                warning="Photo captured without autofocus - may be blurry. Consider setting lens to AI Servo or Manual mode for better results.",
                                 attempts=attempt
                             )
                             
