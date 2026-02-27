@@ -193,24 +193,50 @@ export async function cameraRoutes(fastify: FastifyInstance) {
 
         // Stop preview stream before capture
         const previewManager = getPreviewStreamManager();
-        if (previewManager.clientCount > 0) {
+        const hadPreviewClients = previewManager.clientCount > 0;
+        if (hadPreviewClients) {
           logger.info("Stopping preview stream for capture...");
           await previewManager.stopAll();
         }
 
-        // Capture photo
-        const result = await cameraService.capturePhoto(
-          sessionId,
-          sequenceNumber,
-        );
+        try {
+          // Capture photo
+          const result = await cameraService.capturePhoto(
+            sessionId,
+            sequenceNumber,
+          );
 
-        return reply.code(HTTP_STATUS.OK).send({
-          success: true,
-          data: {
-            filePath: result.imagePath,
-            metadata: result.metadata,
-          },
-        });
+          // Restart preview stream after successful capture
+          if (hadPreviewClients) {
+            logger.info("Restarting preview stream after capture...");
+            try {
+              await cameraService.startPreviewStream();
+              logger.info("Preview stream restarted successfully");
+            } catch (restartError) {
+              logger.warn("Failed to restart preview stream:", restartError);
+            }
+          }
+
+          return reply.code(HTTP_STATUS.OK).send({
+            success: true,
+            data: {
+              filePath: result.imagePath,
+              metadata: result.metadata,
+            },
+          });
+        } catch (captureError: any) {
+          // Even on capture failure, try to restart preview
+          if (hadPreviewClients) {
+            logger.info("Capture failed, attempting to restart preview stream...");
+            try {
+              await cameraService.startPreviewStream();
+              logger.info("Preview stream restarted after failed capture");
+            } catch (restartError) {
+              logger.warn("Failed to restart preview after failed capture:", restartError);
+            }
+          }
+          throw captureError;
+        }
       } catch (error: any) {
         logger.error("Capture failed:", error);
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
