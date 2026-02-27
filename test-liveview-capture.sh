@@ -98,11 +98,23 @@ test_capture() {
     log "  Testing: $test_name"
     log "========================================"
     
+    # Get first available package
+    log_info "Getting available package..."
+    local packages_response=$(curl -s http://localhost:4000/api/packages || echo '{"success": false, "data": []}')
+    local package_id=$(echo "$packages_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+    
+    if [ -z "$package_id" ]; then
+        log_error "No packages found in database. Please run: cd apps/backend \&\& pnpm db:seed"
+        return 1
+    fi
+    
+    log_info "Using package: $package_id"
+    
     # Create test session
     log_info "Creating test session..."
     local session_response=$(curl -s -X POST http://localhost:4000/api/sessions \
         -H "Content-Type: application/json" \
-        -d '{"packageId": 1}' || echo '{"success": false}')
+        -d "{\"packageId\": \"$package_id\"}" || echo '{"success": false}')
     
     local session_id=$(echo "$session_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
     
