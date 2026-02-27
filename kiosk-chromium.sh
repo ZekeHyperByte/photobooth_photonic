@@ -38,20 +38,25 @@ echo "URL: $PHOTONIC_URL"
 echo ""
 
 # Launch Chromium
-chromium $CHROMIUM_FLAGS &
+nohup chromium $CHROMIUM_FLAGS > /dev/null 2>&1 &
 
 CHROMIUM_PID=$!
+disown $CHROMIUM_PID
 
 echo "Chromium started (PID: $CHROMIUM_PID)"
 echo ""
-echo "Press F11 to exit fullscreen (if needed)"
-echo "Press Alt+F4 or close window to exit"
+echo "Kiosk is running!"
 echo ""
-echo "To stop completely, run: pkill chromium"
+echo "To exit: Press Alt+F4 in the kiosk window"
+echo "To stop: Run 'pkill chromium'"
 echo ""
+echo "Waiting a few seconds to verify startup..."
+sleep 3
 
-# Wait for Chromium
-wait $CHROMIUM_PID
-
-echo ""
-echo "Kiosk closed."
+if ps -p $CHROMIUM_PID > /dev/null; then
+    echo "✓ Kiosk is running successfully!"
+else
+    echo "✗ Kiosk failed to start"
+    echo "Trying to start manually..."
+    chromium $CHROMIUM_FLAGS
+fi
