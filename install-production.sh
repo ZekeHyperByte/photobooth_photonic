@@ -14,8 +14,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Configuration
-INSTALL_DIR="/opt/photonic"
-PHOTONIC_USER="photonic"
+INSTALL_DIR="${INSTALL_DIR:-/opt/photonic}"
+PHOTONIC_USER="${PHOTONIC_USER:-photonic}"
 LOG_FILE="/var/log/photonic-install.log"
 
 log() {
@@ -115,7 +115,6 @@ setup_user() {
     cp "$SCRIPT_DIR/package.json" "$INSTALL_DIR/"
     cp "$SCRIPT_DIR/pnpm-workspace.yaml" "$INSTALL_DIR/"
     cp "$SCRIPT_DIR/turbo.json" "$INSTALL_DIR/"
-    cp "$SCRIPT_DIR/ecosystem.config.js" "$INSTALL_DIR/"
     
     # Create data directories
     mkdir -p "$INSTALL_DIR/apps/backend/data/photos"
@@ -205,9 +204,74 @@ EOF
     fi
 }
 
-# Phase 6: Setup Database
+# Phase 6: Generate ecosystem.config.js with correct paths
+generate_ecosystem_config() {
+    log_section "Phase 6: Generating PM2 Configuration"
+    
+    cat > "$INSTALL_DIR/ecosystem.config.js" << EOF
+/**
+ * PM2 Ecosystem Configuration
+ * Generated during installation
+ */
+
+module.exports = {
+  apps: [
+    {
+      name: "photonic-camera",
+      cwd: "$INSTALL_DIR/services/camera",
+      script: "./.venv/bin/python",
+      args: "-m src.main",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "500M",
+      env: {
+        NODE_ENV: "production",
+        PYTHONUNBUFFERED: "1",
+      },
+      log_file: "$INSTALL_DIR/logs/camera-service.log",
+      out_file: "$INSTALL_DIR/logs/camera-service-out.log",
+      error_file: "$INSTALL_DIR/logs/camera-service-error.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      merge_logs: true,
+      wait_ready: true,
+      kill_timeout: 5000,
+      restart_delay: 3000,
+    },
+    {
+      name: "photonic-backend",
+      cwd: "$INSTALL_DIR/apps/backend",
+      script: "./node_modules/.bin/tsx",
+      args: "dist/index.js",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "1G",
+      env: {
+        NODE_ENV: "production",
+        PORT: "4000",
+      },
+      log_file: "$INSTALL_DIR/logs/backend.log",
+      out_file: "$INSTALL_DIR/logs/backend-out.log",
+      error_file: "$INSTALL_DIR/logs/backend-error.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      merge_logs: true,
+      kill_timeout: 5000,
+      restart_delay: 2000,
+    },
+  ],
+};
+EOF
+    
+    chown "$PHOTONIC_USER:$PHOTONIC_USER" "$INSTALL_DIR/ecosystem.config.js"
+    log_info "PM2 configuration generated with correct paths!"
+}
+
+# Phase 7: Setup Database
 setup_database() {
-    log_section "Phase 6: Setting Up Database"
+    log_section "Phase 7: Setting Up Database"
     
     cd "$INSTALL_DIR/apps/backend"
     
@@ -220,9 +284,9 @@ setup_database() {
     log_info "Database setup complete!"
 }
 
-# Phase 7: Configure Firewall
+# Phase 8: Configure Firewall
 configure_firewall() {
-    log_section "Phase 7: Configuring Firewall"
+    log_section "Phase 8: Configuring Firewall"
     
     if command -v ufw &> /dev/null; then
         log_info "Configuring UFW..."
@@ -242,9 +306,9 @@ configure_firewall() {
     fi
 }
 
-# Phase 8: Install Systemd Service
+# Phase 9: Install Systemd Service
 install_systemd() {
-    log_section "Phase 8: Installing Systemd Service"
+    log_section "Phase 9: Installing Systemd Service"
     
     # Create PM2 home directory
     PM2_HOME="/home/$PHOTONIC_USER/.pm2"
@@ -281,9 +345,9 @@ EOF
     log_info "Systemd service installed!"
 }
 
-# Phase 9: Create Health Check Script
+# Phase 10: Create Health Check Script
 create_health_check() {
-    log_section "Phase 9: Creating Health Check Script"
+    log_section "Phase 10: Creating Health Check Script"
     
     cat > "$INSTALL_DIR/health-check.sh" << 'EOF'
 #!/bin/bash
@@ -355,6 +419,7 @@ main() {
     install_node_deps
     setup_camera_service
     setup_environment
+    generate_ecosystem_config
     setup_database
     configure_firewall
     install_systemd

@@ -1,0 +1,74 @@
+#!/bin/bash
+#
+# ZUSHOBA - Fix Photonic Installation Paths
+# Run this on the target machine to fix hardcoded paths in ecosystem.config.js
+#
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Detect installation directory
+if [ -d "/opt/photonic" ]; then
+    INSTALL_DIR="/opt/photonic"
+elif [ -d "$HOME/photonic-v0.1" ]; then
+    INSTALL_DIR="$HOME/photonic-v0.1"
+else
+    echo -e "${RED}Error: Could not find photonic installation${NC}"
+    echo "Looked in: /opt/photonic and $HOME/photonic-v0.1"
+    exit 1
+fi
+
+echo -e "${BLUE}Found installation at: $INSTALL_DIR${NC}"
+
+# Check if running as root for systemctl
+if [ "$EUID" -ne 0 ]; then 
+    echo -e "${YELLOW}Warning: Not running as root. Will try with sudo.${NC}"
+    SUDO="sudo"
+else
+    SUDO=""
+fi
+
+# Backup original config
+echo -e "${BLUE}Backing up ecosystem.config.js...${NC}"
+cp "$INSTALL_DIR/ecosystem.config.js" "$INSTALL_DIR/ecosystem.config.js.backup.$(date +%Y%m%d_%H%M%S)"
+
+# Fix paths in ecosystem.config.js
+echo -e "${BLUE}Fixing paths in ecosystem.config.js...${NC}"
+
+# Use sed to replace hardcoded paths with INSTALL_DIR
+sed -i "s|/home/qiu/photonic-v0.1|$INSTALL_DIR|g" "$INSTALL_DIR/ecosystem.config.js"
+sed -i "s|/home/photonic/photonic-v0.1|$INSTALL_DIR|g" "$INSTALL_DIR/ecosystem.config.js"
+
+echo -e "${GREEN}✓ Paths updated in ecosystem.config.js${NC}"
+
+# Show the changes
+echo -e "${BLUE}Verifying changes...${NC}"
+grep -n "cwd:" "$INSTALL_DIR/ecosystem.config.js" | head -5
+
+# Restart the service
+echo -e "${BLUE}Restarting photonic service...${NC}"
+$SUDO systemctl daemon-reload
+$SUDO systemctl stop photonic 2>/dev/null || true
+sleep 2
+$SUDO systemctl start photonic
+
+# Check status
+sleep 3
+echo -e "${BLUE}Checking service status...${NC}"
+if $SUDO systemctl is-active --quiet photonic; then
+    echo -e "${GREEN}✓ Photonic service is now running!${NC}"
+    echo ""
+    echo -e "${YELLOW}Access URLs:${NC}"
+    IP=$(hostname -I | awk '{print $1}')
+    echo -e "  Photobooth: ${BLUE}http://$IP:4000${NC}"
+    echo -e "  Admin:      ${BLUE}http://$IP:4000/admin${NC}"
+else
+    echo -e "${RED}✗ Service failed to start${NC}"
+    echo -e "${YELLOW}Check logs with: sudo journalctl -u photonic -n 50${NC}"
+    exit 1
+fi
