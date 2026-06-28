@@ -5,7 +5,7 @@
  * POST   /api/admin/cameras/select - No-op (single camera only)
  * POST   /api/admin/cameras/standby - No-op (no failover support)
  *
- * Note: This is simplified for single python-gphoto2 camera deployment.
+ * Note: This is simplified for single camera-win camera deployment.
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
@@ -37,14 +37,14 @@ export async function adminCameraRoutes(fastify: FastifyInstance) {
           data: {
             cameras: [
               {
-                id: "python-gphoto2",
+                id: "camera-win",
                 model: status.model || "Canon DSLR",
                 port: "USB",
                 isActive: status.connected,
                 isStandby: false,
               },
             ],
-            activeCameraId: status.connected ? "python-gphoto2" : null,
+            activeCameraId: status.connected ? "camera-win" : null,
             standbyCameraId: null,
           },
         });
@@ -72,7 +72,7 @@ export async function adminCameraRoutes(fastify: FastifyInstance) {
         success: true,
         message: "Single camera mode - selection not required",
         data: {
-          cameraId: "python-gphoto2",
+          cameraId: "camera-win",
         },
       });
     },

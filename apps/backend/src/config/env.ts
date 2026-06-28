@@ -13,8 +13,8 @@ export const env: {
   processedPath: string;
   templatesPath: string;
   thumbnailsPath: string;
-  pythonCameraServiceUrl: string;
-  pythonCameraServiceWsUrl: string;
+  cameraServiceUrl: string;
+  cameraServiceWsUrl: string;
   captureTimeoutMs: number;
   captureQueueMode: "queue" | "reject";
   liveViewFps: number;
@@ -56,11 +56,15 @@ export const env: {
   templatesPath: process.env.TEMPLATES_PATH || "./data/templates",
   thumbnailsPath: process.env.THUMBNAILS_PATH || "./data/thumbnails",
 
-  // Python Camera Service (gphoto2)
-  pythonCameraServiceUrl:
-    process.env.PYTHON_CAMERA_SERVICE_URL || "http://localhost:8000",
-  pythonCameraServiceWsUrl:
-    process.env.PYTHON_CAMERA_SERVICE_WS_URL || "ws://localhost:8000",
+  // Camera service (camera-win / EDSDK). Old PYTHON_* vars kept as fallback.
+  cameraServiceUrl:
+    process.env.CAMERA_SERVICE_URL ||
+    process.env.PYTHON_CAMERA_SERVICE_URL ||
+    "http://localhost:8000",
+  cameraServiceWsUrl:
+    process.env.CAMERA_SERVICE_WS_URL ||
+    process.env.PYTHON_CAMERA_SERVICE_WS_URL ||
+    "ws://localhost:8000",
 
   // Capture settings
   captureTimeoutMs: parseInt(process.env.CAPTURE_TIMEOUT_MS || "30000", 10),

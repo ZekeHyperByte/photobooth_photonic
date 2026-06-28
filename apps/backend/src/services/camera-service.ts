@@ -494,13 +494,29 @@ export class CameraService {
   }
 
   /**
-   * Configure camera settings.
-   * ponytail: the gphoto2 provider's setProperty is a no-op (the old EDSDK
-   * property-ID path is dead). Real config will route through camera-win's
-   * POST /api/v1/camera/config — wire that into the provider when it lands.
+   * Configure camera settings — routes through camera-win's
+   * POST /api/v1/camera/config (CONTRACT §9). Maps the generic CameraSettings
+   * onto the snake_case capture fields the service expects.
    */
   async configure(settings: CameraSettings): Promise<CameraSettings> {
-    logWithTimestamp("info", "Camera configure requested (no-op provider)", settings);
+    const config: Record<string, unknown> = {};
+    if (settings.iso !== undefined) config.iso_capture = settings.iso;
+    if (settings.shutterSpeed !== undefined)
+      config.shutter_speed_capture = settings.shutterSpeed;
+
+    if (Object.keys(config).length === 0) {
+      logWithTimestamp("info", "Camera configure: no mappable fields", settings);
+      return settings;
+    }
+
+    const provider = await this.getProvider();
+    if (!provider.setConfig) {
+      logWithTimestamp("warn", "Provider does not support setConfig");
+      return settings;
+    }
+
+    logWithTimestamp("info", "Camera configure → service", config);
+    await provider.setConfig(config);
     return settings;
   }
 

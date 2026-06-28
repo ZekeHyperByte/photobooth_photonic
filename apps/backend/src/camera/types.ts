@@ -161,6 +161,12 @@ export interface CameraProvider {
    */
   getProperty(propertyId: number): Promise<any>;
 
+  /**
+   * Push capture/liveview settings to the camera service (CONTRACT §9).
+   * @param config - snake_case ConfigUpdateRequest; only present fields apply
+   */
+  setConfig?(config: Record<string, unknown>): Promise<void>;
+
   // Status
 
   /**

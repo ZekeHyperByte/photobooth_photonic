@@ -1,13 +1,13 @@
 /**
- * Camera Manager - Python gphoto2 Only
+ * Camera Manager - single HTTP camera provider
  *
- * Simplified for Linux-only deployment with python-gphoto2 provider.
+ * Talks to the external camera service (camera-win / EDSDK) via HttpCameraProvider.
  */
 
 import { EventEmitter } from "events";
 import { cameraLogger } from "./logger";
 import type { ExtendedCameraStatusResponse } from "./types";
-import { PythonGPhoto2Provider } from "./python-gphoto2-provider";
+import { HttpCameraProvider } from "./http-camera-provider";
 import { CameraNotInitializedError } from "./errors";
 import { env } from "../config/env";
 
@@ -25,7 +25,7 @@ export interface CameraManagerHealth {
 }
 
 export class CameraManager extends EventEmitter {
-  private provider: PythonGPhoto2Provider | null = null;
+  private provider: HttpCameraProvider | null = null;
   private initialized = false;
   private initializing = false;
 
@@ -51,7 +51,7 @@ export class CameraManager extends EventEmitter {
    * Initialize the camera manager - NON-BLOCKING
    */
   async initialize(): Promise<void> {
-    cameraLogger.info("CameraManager: Initializing (python-gphoto2 only)");
+    cameraLogger.info("CameraManager: Initializing (camera-win only)");
 
     if (this.initialized || this.initializing) {
       return;
@@ -90,7 +90,7 @@ export class CameraManager extends EventEmitter {
    */
   private async connectCamera(): Promise<void> {
     try {
-      this.provider = new PythonGPhoto2Provider();
+      this.provider = new HttpCameraProvider();
       await this.provider.initialize();
 
       if (this.provider.isConnected()) {
@@ -306,7 +306,7 @@ export class CameraManager extends EventEmitter {
   /**
    * Get the active camera provider
    */
-  getProvider(): PythonGPhoto2Provider | null {
+  getProvider(): HttpCameraProvider | null {
     return this.provider;
   }
 
@@ -409,7 +409,7 @@ export class CameraManager extends EventEmitter {
    * Get active camera provider (alias for getProvider)
    * @deprecated Use getProvider() instead
    */
-  getActiveProvider(): PythonGPhoto2Provider | null {
+  getActiveProvider(): HttpCameraProvider | null {
     return this.provider;
   }
 
@@ -418,7 +418,7 @@ export class CameraManager extends EventEmitter {
    * Since we only have one camera, returns a fixed ID
    */
   getActiveCameraId(): string | null {
-    return this.provider?.isConnected() ? "python-gphoto2" : null;
+    return this.provider?.isConnected() ? "camera-win" : null;
   }
 
   /**

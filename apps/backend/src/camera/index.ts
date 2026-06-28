@@ -22,7 +22,7 @@ export {
 } from "./camera-manager";
 
 // Camera Provider (HTTP/WS client to the camera service)
-export { PythonGPhoto2Provider } from "./python-gphoto2-provider";
+export { HttpCameraProvider } from "./http-camera-provider";
 export { CameraProvider } from "./types";
 
 // Logger

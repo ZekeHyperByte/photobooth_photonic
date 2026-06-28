@@ -1,13 +1,12 @@
 /**
- * Python GPhoto2 Provider
+ * HTTP Camera Provider
  *
- * Communicates with Python camera service via HTTP/WebSocket.
- * Provides fast live view and capture for Canon DSLR cameras.
+ * Proxies camera ops to the external camera service (camera-win / EDSDK)
+ * over the frozen HTTP/WS contract. Provides live view and capture.
  */
 
 import { EventEmitter } from "events";
 import WebSocket from "ws";
-import path from "path";
 import {
   CameraProvider,
   CaptureResult,
@@ -16,13 +15,10 @@ import {
 import { cameraLogger } from "./logger";
 import { env } from "../config/env";
 
-const PYTHON_SERVICE_URL = env.pythonCameraServiceUrl;
-const PYTHON_SERVICE_WS_URL = env.pythonCameraServiceWsUrl;
+const CAMERA_SERVICE_URL = env.cameraServiceUrl;
+const CAMERA_SERVICE_WS_URL = env.cameraServiceWsUrl;
 
-// Base directory where Python service saves photos
-const PYTHON_SERVICE_BASE_DIR = "/home/qiu/photonic-v0.1/services/camera";
-
-export class PythonGPhoto2Provider
+export class HttpCameraProvider
   extends EventEmitter
   implements CameraProvider
 {
@@ -39,16 +35,16 @@ export class PythonGPhoto2Provider
   private frameLock: boolean = false;
 
   async initialize(): Promise<void> {
-    cameraLogger.info("PythonGPhoto2Provider: Initializing");
+    cameraLogger.info("HttpCameraProvider: Initializing");
 
     try {
-      // Try to connect to Python service
+      // Try to connect to camera service
       await this.connectToService();
       this.connected = true;
 
-      cameraLogger.info("PythonGPhoto2Provider: Initialized successfully");
+      cameraLogger.info("HttpCameraProvider: Initialized successfully");
     } catch (error) {
-      cameraLogger.error("PythonGPhoto2Provider: Initialization failed", {
+      cameraLogger.error("HttpCameraProvider: Initialization failed", {
         error,
       });
       throw error;
@@ -56,24 +52,24 @@ export class PythonGPhoto2Provider
   }
 
   async disconnect(): Promise<void> {
-    cameraLogger.info("PythonGPhoto2Provider: Disconnecting");
+    cameraLogger.info("HttpCameraProvider: Disconnecting");
 
     // Stop live view
     await this.stopLiveView().catch(() => {});
 
-    // Disconnect from Python service
+    // Disconnect from camera service
     try {
-      await fetch(`${PYTHON_SERVICE_URL}/api/v1/camera/disconnect`, {
+      await fetch(`${CAMERA_SERVICE_URL}/api/v1/camera/disconnect`, {
         method: "POST",
       });
     } catch (error) {
-      cameraLogger.debug("PythonGPhoto2Provider: Disconnect error (expected)", {
+      cameraLogger.debug("HttpCameraProvider: Disconnect error (expected)", {
         error,
       });
     }
 
     this.connected = false;
-    cameraLogger.info("PythonGPhoto2Provider: Disconnected");
+    cameraLogger.info("HttpCameraProvider: Disconnected");
   }
 
   isConnected(): boolean {
@@ -84,7 +80,7 @@ export class PythonGPhoto2Provider
     sessionId: string,
     sequenceNumber: number,
   ): Promise<CaptureResult> {
-    cameraLogger.info("PythonGPhoto2Provider: Capturing photo", {
+    cameraLogger.info("HttpCameraProvider: Capturing photo", {
       sessionId,
       sequenceNumber,
     });
@@ -93,7 +89,7 @@ export class PythonGPhoto2Provider
 
     try {
       const response = await fetch(
-        `${PYTHON_SERVICE_URL}/api/v1/camera/capture`,
+        `${CAMERA_SERVICE_URL}/api/v1/camera/capture`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -117,21 +113,20 @@ export class PythonGPhoto2Provider
       };
 
       const captureTime = Date.now() - startTime;
-      cameraLogger.info("PythonGPhoto2Provider: Photo captured", {
+      cameraLogger.info("HttpCameraProvider: Photo captured", {
         imagePath: result.image_path,
         captureTimeMs: result.capture_time_ms,
         clientMeasuredMs: captureTime,
       });
 
+      // camera-win returns an ABSOLUTE path (CONTRACT §7). The old Linux
+      // join against a hardcoded base dir is gone.
       return {
-        // camera-win returns an absolute path; older relative paths fall back to base dir.
-        imagePath: path.isAbsolute(result.image_path)
-          ? result.image_path
-          : path.join(PYTHON_SERVICE_BASE_DIR, result.image_path),
+        imagePath: result.image_path,
         metadata: result.metadata,
       };
     } catch (error) {
-      cameraLogger.error("PythonGPhoto2Provider: Capture failed", { error });
+      cameraLogger.error("HttpCameraProvider: Capture failed", { error });
       throw error;
     }
   }
@@ -141,12 +136,12 @@ export class PythonGPhoto2Provider
       return;
     }
 
-    cameraLogger.info("PythonGPhoto2Provider: Starting live view");
+    cameraLogger.info("HttpCameraProvider: Starting live view");
 
     try {
-      // Start live view on Python service
+      // Start live view on camera service
       const response = await fetch(
-        `${PYTHON_SERVICE_URL}/api/v1/camera/liveview/start`,
+        `${CAMERA_SERVICE_URL}/api/v1/camera/liveview/start`,
         {
           method: "POST",
         },
@@ -160,9 +155,9 @@ export class PythonGPhoto2Provider
       await this.connectWebSocket();
 
       this.liveViewActive = true;
-      cameraLogger.info("PythonGPhoto2Provider: Live view started");
+      cameraLogger.info("HttpCameraProvider: Live view started");
     } catch (error) {
-      cameraLogger.error("PythonGPhoto2Provider: Failed to start live view", {
+      cameraLogger.error("HttpCameraProvider: Failed to start live view", {
         error,
       });
       throw error;
@@ -174,7 +169,7 @@ export class PythonGPhoto2Provider
       return;
     }
 
-    cameraLogger.info("PythonGPhoto2Provider: Stopping live view");
+    cameraLogger.info("HttpCameraProvider: Stopping live view");
 
     // Close WebSocket
     if (this.ws) {
@@ -182,19 +177,19 @@ export class PythonGPhoto2Provider
       this.ws = null;
     }
 
-    // Stop on Python service
+    // Stop on camera service
     try {
-      await fetch(`${PYTHON_SERVICE_URL}/api/v1/camera/liveview/stop`, {
+      await fetch(`${CAMERA_SERVICE_URL}/api/v1/camera/liveview/stop`, {
         method: "POST",
       });
     } catch (error) {
-      cameraLogger.debug("PythonGPhoto2Provider: Stop live view error", {
+      cameraLogger.debug("HttpCameraProvider: Stop live view error", {
         error,
       });
     }
 
     this.liveViewActive = false;
-    cameraLogger.info("PythonGPhoto2Provider: Live view stopped");
+    cameraLogger.info("HttpCameraProvider: Live view stopped");
   }
 
   async getLiveViewFrame(): Promise<Buffer> {
@@ -220,10 +215,26 @@ export class PythonGPhoto2Provider
 
   async setProperty(propertyId: number, value: any): Promise<void> {
     // Properties are handled via config endpoint
-    cameraLogger.debug("PythonGPhoto2Provider: setProperty not implemented", {
+    cameraLogger.debug("HttpCameraProvider: setProperty not implemented", {
       propertyId,
       value,
     });
+  }
+
+  /**
+   * Push capture/liveview settings to the camera service (CONTRACT §9).
+   * `config` is the snake_case ConfigUpdateRequest; only present fields apply.
+   */
+  async setConfig(config: Record<string, unknown>): Promise<void> {
+    const response = await fetch(`${CAMERA_SERVICE_URL}/api/v1/camera/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Config update failed: ${await response.text()}`);
+    }
   }
 
   async getProperty(propertyId: number): Promise<any> {
@@ -234,7 +245,7 @@ export class PythonGPhoto2Provider
   async getStatus(): Promise<ExtendedCameraStatusResponse> {
     try {
       const response = await fetch(
-        `${PYTHON_SERVICE_URL}/api/v1/camera/status`,
+        `${CAMERA_SERVICE_URL}/api/v1/camera/status`,
       );
 
       if (!response.ok) {
@@ -263,14 +274,14 @@ export class PythonGPhoto2Provider
           whiteBalance: "Auto",
         },
         providerMetadata: {
-          provider: "python-gphoto2",
+          provider: "camera-win",
           liveViewActive: status.liveview_active || false,
           captureCount: status.capture_count,
           lastCaptureAt: status.last_capture_at,
         },
       };
     } catch (error) {
-      cameraLogger.error("PythonGPhoto2Provider: Failed to get status", {
+      cameraLogger.error("HttpCameraProvider: Failed to get status", {
         error,
       });
       return {
@@ -284,17 +295,17 @@ export class PythonGPhoto2Provider
   }
 
   async extendShutDownTimer(): Promise<void> {
-    // Not needed for gphoto2
+    // Not needed
   }
 
   async triggerFocus(): Promise<void> {
     // AF is handled automatically
-    cameraLogger.debug("PythonGPhoto2Provider: triggerFocus not needed");
+    cameraLogger.debug("HttpCameraProvider: triggerFocus not needed");
   }
 
   async cancelCapture(): Promise<void> {
     // Cancel not supported in this implementation
-    cameraLogger.debug("PythonGPhoto2Provider: cancelCapture not supported");
+    cameraLogger.debug("HttpCameraProvider: cancelCapture not supported");
   }
 
   onFrame(callback: (frame: Buffer) => void): () => void {
@@ -307,30 +318,30 @@ export class PythonGPhoto2Provider
   private async connectToService(): Promise<void> {
     try {
       const response = await fetch(
-        `${PYTHON_SERVICE_URL}/api/v1/camera/connect`,
+        `${CAMERA_SERVICE_URL}/api/v1/camera/connect`,
         {
           method: "POST",
         },
       );
 
       if (!response.ok) {
-        throw new Error("Failed to connect to Python service");
+        throw new Error("Failed to connect to camera service");
       }
     } catch (error) {
       throw new Error(
-        `Python camera service not available at ${PYTHON_SERVICE_URL}`,
+        `camera service not available at ${CAMERA_SERVICE_URL}`,
       );
     }
   }
 
   private async connectWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const wsUrl = `${PYTHON_SERVICE_WS_URL}/api/v1/camera/liveview/stream`;
+      const wsUrl = `${CAMERA_SERVICE_WS_URL}/api/v1/camera/liveview/stream`;
 
       this.ws = new WebSocket(wsUrl);
 
       this.ws.on("open", () => {
-        cameraLogger.debug("PythonGPhoto2Provider: WebSocket connected");
+        cameraLogger.debug("HttpCameraProvider: WebSocket connected");
         this.reconnectAttempts = 0;
         resolve();
       });
@@ -344,7 +355,7 @@ export class PythonGPhoto2Provider
           try {
             callback(data);
           } catch (error) {
-            cameraLogger.error("PythonGPhoto2Provider: Frame callback error", {
+            cameraLogger.error("HttpCameraProvider: Frame callback error", {
               error,
             });
           }
@@ -352,12 +363,12 @@ export class PythonGPhoto2Provider
       });
 
       this.ws.on("error", (error) => {
-        cameraLogger.error("PythonGPhoto2Provider: WebSocket error", { error });
+        cameraLogger.error("HttpCameraProvider: WebSocket error", { error });
         reject(error);
       });
 
       this.ws.on("close", () => {
-        cameraLogger.debug("PythonGPhoto2Provider: WebSocket closed");
+        cameraLogger.debug("HttpCameraProvider: WebSocket closed");
         // Use void to handle async properly
         void this.handleWebSocketClose();
       });
@@ -370,7 +381,7 @@ export class PythonGPhoto2Provider
   }> {
     try {
       const response = await fetch(
-        `${PYTHON_SERVICE_URL}/api/v1/camera/capture/status`,
+        `${CAMERA_SERVICE_URL}/api/v1/camera/capture/status`,
       );
       if (!response.ok) {
         return { isCapturing: false };
@@ -385,7 +396,7 @@ export class PythonGPhoto2Provider
       };
     } catch (error) {
       cameraLogger.debug(
-        "PythonGPhoto2Provider: Failed to check capture status",
+        "HttpCameraProvider: Failed to check capture status",
         { error },
       );
       return { isCapturing: false };
@@ -410,7 +421,7 @@ export class PythonGPhoto2Provider
 
     if (captureStatus.isCapturing) {
       cameraLogger.info(
-        `PythonGPhoto2Provider: Capture in progress (${captureStatus.elapsedSeconds?.toFixed(1)}s), ` +
+        `HttpCameraProvider: Capture in progress (${captureStatus.elapsedSeconds?.toFixed(1)}s), ` +
           `pausing reconnection`,
       );
 
@@ -426,7 +437,7 @@ export class PythonGPhoto2Provider
         const status = await this.checkCaptureStatus();
         if (!status.isCapturing) {
           cameraLogger.info(
-            `PythonGPhoto2Provider: Capture completed after ${(waitedTime / 1000).toFixed(1)}s, ` +
+            `HttpCameraProvider: Capture completed after ${(waitedTime / 1000).toFixed(1)}s, ` +
               `resuming reconnection`,
           );
           break;
@@ -435,7 +446,7 @@ export class PythonGPhoto2Provider
 
       if (waitedTime >= maxWaitTime) {
         cameraLogger.warn(
-          "PythonGPhoto2Provider: Capture timeout, proceeding with reconnection anyway",
+          "HttpCameraProvider: Capture timeout, proceeding with reconnection anyway",
         );
       }
     }
@@ -453,33 +464,33 @@ export class PythonGPhoto2Provider
 
       this.reconnectAttempts++;
       cameraLogger.info(
-        `PythonGPhoto2Provider: Reconnecting WebSocket (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
+        `HttpCameraProvider: Reconnecting WebSocket (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
       );
 
       try {
         await this.connectWebSocket();
         cameraLogger.info(
-          "PythonGPhoto2Provider: WebSocket reconnected successfully",
+          "HttpCameraProvider: WebSocket reconnected successfully",
         );
         this.reconnectAttempts = 0;
         return;
       } catch (error) {
         cameraLogger.error(
-          `PythonGPhoto2Provider: Reconnect attempt ${this.reconnectAttempts} failed`,
+          `HttpCameraProvider: Reconnect attempt ${this.reconnectAttempts} failed`,
           { error },
         );
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
           const delay = this.reconnectDelay * this.reconnectAttempts;
           cameraLogger.debug(
-            `PythonGPhoto2Provider: Waiting ${delay}ms before next attempt`,
+            `HttpCameraProvider: Waiting ${delay}ms before next attempt`,
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     }
 
-    cameraLogger.error("PythonGPhoto2Provider: Max reconnect attempts reached");
+    cameraLogger.error("HttpCameraProvider: Max reconnect attempts reached");
     this.liveViewActive = false;
   }
 }

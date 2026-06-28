@@ -5,7 +5,7 @@
  * POST /api/camera/reset - Manual camera reset (admin)
  * GET /api/camera/health/detailed - Detailed health with statistics
  *
- * Note: Simplified for single python-gphoto2 camera deployment.
+ * Note: Simplified for single camera-win camera deployment.
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
@@ -124,7 +124,7 @@ export async function cameraHealthRoutes(fastify: FastifyInstance) {
             lastReconnectAt: healthStats.lastResetAt,
           },
           sdk: status.sdk || {
-            version: "python-gphoto2",
+            version: "camera-win",
             dllPath: "N/A",
           },
           health: {
@@ -254,12 +254,12 @@ export async function cameraHealthRoutes(fastify: FastifyInstance) {
 
           // Single camera info
           camera: {
-            id: "python-gphoto2",
+            id: "camera-win",
             model: status.model || "Canon DSLR",
             port: "USB",
             isActive: status.connected,
           },
-          activeCameraId: status.connected ? "python-gphoto2" : null,
+          activeCameraId: status.connected ? "camera-win" : null,
           standbyCameraId: null,
 
           // Health statistics

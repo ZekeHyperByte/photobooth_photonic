@@ -372,20 +372,13 @@ export async function cameraRoutes(fastify: FastifyInstance) {
         }
 
         // Extract provider type from camera ID (format: "providerType-timestamp")
-        // Handle multi-part provider names like "python-gphoto2-1234567890"
-        const parts = activeCameraId.split("-");
-        const providerType =
-          parts.length > 2 && parts[0] === "python" && parts[1] === "gphoto2"
-            ? "python-gphoto2"
-            : parts[0];
+        // Handle multi-part provider names like "camera-win-1234567890"
+        const providerType = activeCameraId.startsWith("camera-win")
+          ? "camera-win"
+          : activeCameraId.split("-")[0];
 
         // Map provider types to modes
-        const mode = [
-          "edsdk",
-          "edsdk-v2",
-          "gphoto2",
-          "python-gphoto2",
-        ].includes(providerType)
+        const mode = ["edsdk", "edsdk-v2", "camera-win"].includes(providerType)
           ? "dslr"
           : providerType === "webcam"
             ? "webcam"
