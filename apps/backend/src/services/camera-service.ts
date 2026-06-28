@@ -494,75 +494,14 @@ export class CameraService {
   }
 
   /**
-   * Configure camera settings
-   * Note: This is a placeholder - actual configuration depends on provider capabilities
+   * Configure camera settings.
+   * ponytail: the gphoto2 provider's setProperty is a no-op (the old EDSDK
+   * property-ID path is dead). Real config will route through camera-win's
+   * POST /api/v1/camera/config — wire that into the provider when it lands.
    */
   async configure(settings: CameraSettings): Promise<CameraSettings> {
-    logWithTimestamp("info", "Configuring camera settings", settings);
-
-    try {
-      const provider = await this.getProvider();
-
-      // Apply settings if the provider supports them
-      // This is a simplified implementation
-      const results: CameraSettings = {};
-
-      if (settings.iso) {
-        try {
-          // ISO property ID for Canon EDSDK: 0x00000101
-          await provider.setProperty(0x00000101, settings.iso);
-          results.iso = settings.iso;
-        } catch (error) {
-          logWithTimestamp("warn", "Could not set ISO", {
-            error: (error as Error).message,
-          });
-        }
-      }
-
-      if (settings.aperture) {
-        try {
-          // Aperture property ID: 0x00000102
-          await provider.setProperty(0x00000102, settings.aperture);
-          results.aperture = settings.aperture;
-        } catch (error) {
-          logWithTimestamp("warn", "Could not set aperture", {
-            error: (error as Error).message,
-          });
-        }
-      }
-
-      if (settings.shutterSpeed) {
-        try {
-          // Shutter speed property ID: 0x00000103
-          await provider.setProperty(0x00000103, settings.shutterSpeed);
-          results.shutterSpeed = settings.shutterSpeed;
-        } catch (error) {
-          logWithTimestamp("warn", "Could not set shutter speed", {
-            error: (error as Error).message,
-          });
-        }
-      }
-
-      if (settings.whiteBalance) {
-        try {
-          // White balance property ID: 0x00000104
-          await provider.setProperty(0x00000104, settings.whiteBalance);
-          results.whiteBalance = settings.whiteBalance;
-        } catch (error) {
-          logWithTimestamp("warn", "Could not set white balance", {
-            error: (error as Error).message,
-          });
-        }
-      }
-
-      logWithTimestamp("info", "Camera configuration applied", results);
-      return results;
-    } catch (error) {
-      logWithTimestamp("error", "Configuration failed", {
-        error: (error as Error).message,
-      });
-      throw error;
-    }
+    logWithTimestamp("info", "Camera configure requested (no-op provider)", settings);
+    return settings;
   }
 
   /**
