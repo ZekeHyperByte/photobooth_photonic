@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { whatsappService } from '../services/whatsapp-service';
 import { printService } from '../services/print-service';
+import { hostedDeliveryService } from '../services/hosted-delivery-service';
 import { ENDPOINTS, HTTP_STATUS, MESSAGES } from '@photonic/config';
 import { logger } from '@photonic/utils';
 import type {
@@ -520,6 +521,43 @@ export async function deliveryRoutes(fastify: FastifyInstance) {
         return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
           success: false,
           message: error instanceof Error ? error.message : 'Test print failed',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/delivery/host/session
+   * Upload a session's photos to the central server and return a shareable
+   * download URL + QR data-URL for the customer to scan. (Phase 3)
+   */
+  fastify.post(
+    '/api/delivery/host/session',
+    async (
+      request: FastifyRequest<{ Body: { sessionId: string } }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const { sessionId } = request.body;
+        if (!sessionId) {
+          return reply.code(HTTP_STATUS.BAD_REQUEST).send({
+            success: false,
+            message: 'sessionId is required',
+          });
+        }
+
+        logger.info('Hosting session photos on central', { sessionId });
+        const result = await hostedDeliveryService.hostSession(sessionId);
+
+        return reply.code(HTTP_STATUS.OK).send({ success: true, data: result });
+      } catch (error) {
+        logger.error('Failed to host session photos', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          message:
+            error instanceof Error ? error.message : 'Failed to host session photos',
         });
       }
     }
