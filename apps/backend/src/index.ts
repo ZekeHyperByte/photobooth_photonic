@@ -234,6 +234,13 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       );
       getEntitySyncService().start();
       logger.info("Entity sync service started");
+
+      // Start template sync (pull templates + frame images from central)
+      const { getTemplateSyncService } = await import(
+        "./services/template-sync-service"
+      );
+      getTemplateSyncService().start();
+      logger.info("Template sync service started");
     }
 
     // Start print service
@@ -404,6 +411,13 @@ export async function stopServer(): Promise<void> {
     );
     getEntitySyncService().stop();
     logger.info("Entity sync service stopped");
+
+    // Stop template sync service
+    const { getTemplateSyncService } = await import(
+      "./services/template-sync-service"
+    );
+    getTemplateSyncService().stop();
+    logger.info("Template sync service stopped");
 
     // Stop print service
     printService.stop();
