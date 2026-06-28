@@ -77,6 +77,31 @@ export const deliveryService = {
   },
 
   /**
+   * Host a session's photos on the central server.
+   * Returns a shareable download URL + QR data-URL (Phase 3).
+   */
+  hostSession: async (
+    sessionId: string
+  ): Promise<{ shareId: string; downloadUrl: string; qrDataUrl: string; count: number }> => {
+    const response = await apiClient.post('/api/delivery/host/session', { sessionId });
+    return response.data.data || response.data;
+  },
+
+  /**
+   * Deliver an already-hosted session via WhatsApp from the central server (Phase 3b).
+   */
+  deliverViaCentral: async (
+    shareId: string,
+    phoneNumber: string
+  ): Promise<{ sent: number; failed: number }> => {
+    const response = await apiClient.post('/api/delivery/host/whatsapp', {
+      shareId,
+      phoneNumber,
+    });
+    return response.data.data || response.data;
+  },
+
+  /**
    * Send all session photos via WhatsApp (batch)
    * Sends 3 raw photos + 1 A3 composite
    */

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useUIStore } from '../stores/uiStore';
 import { useSessionStore } from '../stores/sessionStore';
 import { usePhotoStore } from '../stores/photoStore';
@@ -16,6 +16,29 @@ const DeliveryScreen: React.FC = () => {
   const [isSending, setIsSending] = useState(false);
   const [whatsappSuccess, setWhatsappSuccess] = useState(false);
   const [printSuccess, setPrintSuccess] = useState(false);
+  // Central hosting (Phase 3): QR for scan-to-download. Best-effort — if the
+  // central server isn't configured/reachable, the booth falls back to the
+  // local WhatsApp path below and simply shows no QR.
+  const [shareId, setShareId] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    deliveryService
+      .hostSession(session.id)
+      .then((res) => {
+        if (cancelled) return;
+        setShareId(res.shareId);
+        setQrDataUrl(res.qrDataUrl);
+      })
+      .catch((err) => {
+        console.warn('[DeliveryScreen] Central hosting unavailable, using local delivery', err?.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   const handleSendAndPrint = async () => {
     // Validate phone number
@@ -47,19 +70,21 @@ const DeliveryScreen: React.FC = () => {
         photoCount: photos.length,
       });
 
-      // Step 1: Send ALL session photos via WhatsApp (batch: 3 raw + 1 A3 composite)
-      const result = await deliveryService.sendSessionPhotos(
-        session.id,
-        formattedPhone
-      );
-
-      console.log('[DeliveryScreen] WhatsApp send result:', result);
+      // Step 1: Send session photos via WhatsApp. Prefer central (keys + photos
+      // live there once hosted); fall back to the local booth path.
+      if (shareId) {
+        const result = await deliveryService.deliverViaCentral(shareId, formattedPhone);
+        console.log('[DeliveryScreen] Central WhatsApp result:', result);
+      } else {
+        const result = await deliveryService.sendSessionPhotos(session.id, formattedPhone);
+        console.log('[DeliveryScreen] Local WhatsApp result:', result);
+      }
 
       setWhatsappSuccess(true);
 
       showToast({
         type: 'success',
-        message: `${result.totalPhotos || 4} foto berhasil dikirim via WhatsApp!`,
+        message: 'Foto berhasil dikirim via WhatsApp!',
       });
 
       // Step 2: Print ONLY the A3 composite
@@ -117,6 +142,25 @@ const DeliveryScreen: React.FC = () => {
             {photos.length} foto siap untuk dikirim dan dicetak
           </p>
         </div>
+
+        {/* Scan-to-download QR (shown when central hosting succeeded) */}
+        {qrDataUrl && (
+          <Card className="p-4 mb-3">
+            <div className="flex items-center gap-4">
+              <img
+                src={qrDataUrl}
+                alt="QR untuk download foto"
+                className="w-28 h-28 border-[3px] border-black bg-white"
+              />
+              <div>
+                <p className="text-lg font-bold text-black">Scan untuk Download</p>
+                <p className="text-sm text-black">
+                  Pindai kode QR ini untuk mengunduh semua foto Anda.
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Single Card - WhatsApp Input + Auto Print */}
         <Card className="p-4 mb-3">
