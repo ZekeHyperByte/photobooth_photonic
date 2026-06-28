@@ -227,6 +227,13 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       );
       getConfigSyncService().start();
       logger.info("Config sync service started");
+
+      // Start entity sync (push completed sessions/photos/txns to central)
+      const { getEntitySyncService } = await import(
+        "./services/entity-sync-service"
+      );
+      getEntitySyncService().start();
+      logger.info("Entity sync service started");
     }
 
     // Start print service
@@ -390,6 +397,13 @@ export async function stopServer(): Promise<void> {
     );
     getConfigSyncService().stop();
     logger.info("Config sync service stopped");
+
+    // Stop entity sync service
+    const { getEntitySyncService } = await import(
+      "./services/entity-sync-service"
+    );
+    getEntitySyncService().stop();
+    logger.info("Entity sync service stopped");
 
     // Stop print service
     printService.stop();
