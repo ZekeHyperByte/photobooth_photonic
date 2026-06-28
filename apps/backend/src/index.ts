@@ -220,6 +220,13 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       const syncService = getSyncService();
       syncService.start();
       logger.info(`Sync service started, booth ID: ${env.sync.boothId}`);
+
+      // Start config sync (pull packages/filters from central into local cache)
+      const { getConfigSyncService } = await import(
+        "./services/config-sync-service"
+      );
+      getConfigSyncService().start();
+      logger.info("Config sync service started");
     }
 
     // Start print service
@@ -376,6 +383,13 @@ export async function stopServer(): Promise<void> {
     const syncService = getSyncService();
     syncService.stop();
     logger.info("Sync service stopped");
+
+    // Stop config sync service
+    const { getConfigSyncService } = await import(
+      "./services/config-sync-service"
+    );
+    getConfigSyncService().stop();
+    logger.info("Config sync service stopped");
 
     // Stop print service
     printService.stop();
