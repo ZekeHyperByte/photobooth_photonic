@@ -84,6 +84,40 @@ class HostedDeliveryService {
       count: res.data.count,
     };
   }
+
+  /**
+   * Deliver an already-hosted session via WhatsApp from the central server
+   * (provider keys live on central, not the booth). Phase 3b.
+   */
+  async deliverWhatsApp(
+    shareId: string,
+    phoneNumber: string,
+  ): Promise<{ sent: number; failed: number }> {
+    if (!env.sync.centralServerUrl) {
+      throw new Error('CENTRAL_SERVER_URL not configured');
+    }
+
+    const res = await axios.post(
+      `${env.sync.centralServerUrl}/api/host/deliver`,
+      { shareId, phoneNumber },
+      {
+        headers: { 'X-API-Key': env.sync.centralServerApiKey },
+        timeout: 60000,
+      },
+    );
+
+    if (!res.data?.success) {
+      throw new Error(res.data?.error || 'Central delivery failed');
+    }
+
+    logger.info('Session delivered via central WhatsApp', {
+      shareId,
+      sent: res.data.sent,
+      failed: res.data.failed,
+    });
+
+    return { sent: res.data.sent, failed: res.data.failed };
+  }
 }
 
 export const hostedDeliveryService = new HostedDeliveryService();

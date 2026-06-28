@@ -563,5 +563,45 @@ export async function deliveryRoutes(fastify: FastifyInstance) {
     }
   );
 
+  /**
+   * POST /api/delivery/host/whatsapp
+   * Deliver an already-hosted session via WhatsApp from the central server
+   * (provider keys live on central). Phase 3b.
+   */
+  fastify.post(
+    '/api/delivery/host/whatsapp',
+    async (
+      request: FastifyRequest<{ Body: { shareId: string; phoneNumber: string } }>,
+      reply: FastifyReply
+    ) => {
+      try {
+        const { shareId, phoneNumber } = request.body;
+        if (!shareId || !phoneNumber) {
+          return reply.code(HTTP_STATUS.BAD_REQUEST).send({
+            success: false,
+            message: 'shareId and phoneNumber are required',
+          });
+        }
+
+        logger.info('Delivering hosted session via central WhatsApp', { shareId });
+        const result = await hostedDeliveryService.deliverWhatsApp(
+          shareId,
+          phoneNumber
+        );
+
+        return reply.code(HTTP_STATUS.OK).send({ success: true, data: result });
+      } catch (error) {
+        logger.error('Failed to deliver hosted session', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return reply.code(HTTP_STATUS.INTERNAL_SERVER_ERROR).send({
+          success: false,
+          message:
+            error instanceof Error ? error.message : 'Failed to deliver hosted session',
+        });
+      }
+    }
+  );
+
   logger.info('Delivery routes registered');
 }
