@@ -241,6 +241,13 @@ export async function startServer(options: ServerOptions = {}): Promise<void> {
       );
       getTemplateSyncService().start();
       logger.info("Template sync service started");
+
+      // Start code sync (pull available codes, push used codes to central)
+      const { getCodeSyncService } = await import(
+        "./services/code-sync-service"
+      );
+      getCodeSyncService().start();
+      logger.info("Code sync service started");
     }
 
     // Start print service
@@ -418,6 +425,13 @@ export async function stopServer(): Promise<void> {
     );
     getTemplateSyncService().stop();
     logger.info("Template sync service stopped");
+
+    // Stop code sync service
+    const { getCodeSyncService } = await import(
+      "./services/code-sync-service"
+    );
+    getCodeSyncService().stop();
+    logger.info("Code sync service stopped");
 
     // Stop print service
     printService.stop();
