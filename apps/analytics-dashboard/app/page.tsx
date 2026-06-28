@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { getBooths, getTodayStats, getTodayTotals, initializeTables } from '@/lib/db';
 import StatCard from '@/components/StatCard';
 import BoothCard from '@/components/BoothCard';
@@ -84,6 +85,12 @@ export default async function Dashboard() {
             <p className="text-gray-600 mt-1">Central Dashboard</p>
           </div>
           <div className="flex items-center gap-4">
+            <Link
+              href="/sessions"
+              className="px-4 py-2 bg-neo-yellow border-2 border-black font-bold shadow-neo"
+            >
+              Sessions →
+            </Link>
             <span className="px-4 py-2 bg-neo-lime border-2 border-black font-bold">
               {onlineCount}/{booths.length} Booths Online
             </span>

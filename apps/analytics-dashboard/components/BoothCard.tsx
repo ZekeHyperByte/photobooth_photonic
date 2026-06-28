@@ -61,8 +61,16 @@ export default function BoothCard({
         </div>
       </div>
 
-      <div className="text-xs text-gray-500">
-        Last sync: {formatLastSync(lastSync)}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-500">
+          Last sync: {formatLastSync(lastSync)}
+        </span>
+        <a
+          href={`/sessions?booth=${encodeURIComponent(boothId)}`}
+          className="px-3 py-1 bg-neo-cyan border-2 border-black font-bold text-xs"
+        >
+          Sessions →
+        </a>
       </div>
     </div>
   );

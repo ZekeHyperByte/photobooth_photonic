@@ -75,6 +75,53 @@ export async function upsertPhotos(boothId: string, rows: any[]): Promise<void> 
   }
 }
 
+// --- read side: dashboard drill-down --------------------------------------
+
+export interface SessionRow {
+  id: string;
+  booth_id: string;
+  package_id: string | null;
+  status: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  photo_count: number;
+  amount: number | null;
+  txn_status: string | null;
+}
+
+export async function getRecentSessions(opts: {
+  boothId?: string;
+  limit?: number;
+} = {}): Promise<SessionRow[]> {
+  const limit = opts.limit ?? 100;
+  const where = opts.boothId ? sql`WHERE s.booth_id = ${opts.boothId}` : sql``;
+  return sql<SessionRow[]>`
+    SELECT s.id, s.booth_id, s.package_id, s.status, s.started_at, s.completed_at,
+      (SELECT count(*)::int FROM synced_photos p WHERE p.session_id = s.id) AS photo_count,
+      (SELECT t.gross_amount FROM synced_transactions t WHERE t.session_id = s.id
+         ORDER BY t.transaction_time DESC NULLS LAST LIMIT 1) AS amount,
+      (SELECT t.transaction_status FROM synced_transactions t WHERE t.session_id = s.id
+         ORDER BY t.transaction_time DESC NULLS LAST LIMIT 1) AS txn_status
+    FROM synced_sessions s
+    ${where}
+    ORDER BY s.completed_at DESC NULLS LAST
+    LIMIT ${limit}
+  `;
+}
+
+export async function getSessionDetail(id: string): Promise<{
+  session: any | null;
+  photos: any[];
+  transactions: any[];
+}> {
+  const [sessionRows, photos, transactions] = await Promise.all([
+    sql`SELECT * FROM synced_sessions WHERE id = ${id}`,
+    sql`SELECT * FROM synced_photos WHERE session_id = ${id} ORDER BY sequence_number`,
+    sql`SELECT * FROM synced_transactions WHERE session_id = ${id} ORDER BY transaction_time DESC NULLS LAST`,
+  ]);
+  return { session: sessionRows[0] ?? null, photos: [...photos], transactions: [...transactions] };
+}
+
 export async function upsertTransactions(boothId: string, rows: any[]): Promise<void> {
   for (const t of rows) {
     await sql`

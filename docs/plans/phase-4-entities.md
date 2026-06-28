@@ -45,4 +45,6 @@ unit tests for `nextWatermark` + mappers (latest/keep-current/null-safe).
 
 ## Remaining to go live
 - [ ] Confirm first-run batch size is acceptable (or seed watermark to "now")
-- [ ] Build dashboard views over the synced_* tables
+- [x] Build dashboard views over the synced_* tables — `/sessions` list (+ `?booth=`
+      filter) and `/sessions/[id]` detail (photos + transactions); linked from the
+      dashboard header and each BoothCard.
