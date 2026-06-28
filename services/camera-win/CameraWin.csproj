@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CameraWin</RootNamespace>
+    <!-- EDSDK is x86/x64-specific native DLLs; pin the platform you ship. -->
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <!--
+    EDSDK.dll / EdsImage.dll are NOT redistributable via NuGet. Drop the
+    Canon SDK natives next to the exe and reference a managed wrapper here,
+    e.g. a vendored EDSDKWrapper.cs (Canon's sample) or a community binding.
+    Until then the service runs on FakeBackend (no camera needed).
+  -->
+  <!-- Canon natives must sit NEXT TO the exe (flat) so DllImport("EDSDK.dll") resolves. -->
+  <ItemGroup>
+    <None Include="edsdk\*.dll" Condition="Exists('edsdk')">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
