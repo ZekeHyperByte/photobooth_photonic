@@ -391,13 +391,10 @@ class SyncService {
    */
   private async getDiskSpace(): Promise<number> {
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-
-      const { stdout } = await execAsync('df -BG . | tail -1 | awk \'{print $4}\'');
-      const spaceGB = parseFloat(stdout.replace('G', '').trim());
-      return isNaN(spaceGB) ? 0 : spaceGB;
+      // fs.statfs is cross-platform (works on Windows booths); no shell.
+      const stats = await fs.promises.statfs(process.cwd());
+      const freeBytes = stats.bsize * stats.bavail;
+      return Math.round((freeBytes / 1e9) * 100) / 100; // GB, 2dp
     } catch (error) {
       logger.warn('Failed to get disk space', { error });
       return 0;
