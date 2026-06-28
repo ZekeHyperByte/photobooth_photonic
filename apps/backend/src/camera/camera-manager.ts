@@ -9,7 +9,6 @@ import { cameraLogger } from "./logger";
 import type { ExtendedCameraStatusResponse } from "./types";
 import { PythonGPhoto2Provider } from "./python-gphoto2-provider";
 import { CameraNotInitializedError } from "./errors";
-import { performCameraReset, waitForCamera } from "./usb-reset";
 import { env } from "../config/env";
 
 export interface CameraManagerHealth {
@@ -170,22 +169,10 @@ export class CameraManager extends EventEmitter {
         }
       }
 
-      // Perform USB reset
-      cameraLogger.info("CameraManager: Performing USB reset...");
-      const resetResult = await performCameraReset();
-
-      if (!resetResult.success) {
-        cameraLogger.warn("CameraManager: USB reset had warnings", resetResult);
-      }
-
-      // Wait for camera
-      const cameraAvailable = await waitForCamera(30000, 1000);
-
-      if (!cameraAvailable) {
-        throw new Error("Camera did not become available after USB reset");
-      }
-
-      // Reconnect
+      // USB/session reset is owned by the camera service (camera-win/EDSDK).
+      // Recovery here = brief settle, then reconnect the provider.
+      cameraLogger.info("CameraManager: Reconnecting camera provider...");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await this.connectCamera();
 
       this.health.consecutiveFailures = 0;

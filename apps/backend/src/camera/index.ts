@@ -1,6 +1,6 @@
 /**
  * Camera Module
- * Python gphoto2 Only - Linux Deployment
+ * Talks to an external camera service over HTTP/WS (camera-win on Windows).
  */
 
 // Types
@@ -21,20 +21,7 @@ export {
   type CameraManagerHealth,
 } from "./camera-manager";
 
-// USB Reset
-export {
-  performCameraReset,
-  resetGphoto2Processes,
-  findCanonCamera,
-  resetUSBBus,
-  waitForCamera,
-  isCameraAccessible,
-  installUSBReset,
-  type USBResetResult,
-  type CameraUSBInfo,
-} from "./usb-reset";
-
-// Python gphoto2 Provider
+// Camera Provider (HTTP/WS client to the camera service)
 export { PythonGPhoto2Provider } from "./python-gphoto2-provider";
 export { CameraProvider } from "./types";
 
