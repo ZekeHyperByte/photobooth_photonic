@@ -6,9 +6,11 @@
 export * from './provider.interface';
 export * from './mock.provider';
 export * from './midtrans.provider';
+export * from './central.provider';
 
 import { mockPaymentProvider } from './mock.provider';
 import { midtransProvider } from './midtrans.provider';
+import { centralServerProvider } from './central.provider';
 import { logger } from '@photonic/utils';
 import { env } from '../../config/env';
 import type { PaymentProvider } from './provider.interface';
@@ -29,7 +31,20 @@ class PaymentManager {
     const preferredProvider = env.payment.provider;
     
     logger.info('Initializing payment system', { preferredProvider });
-    
+
+    // Preferred: central server (holds Midtrans keys, owns truth, gets webhook)
+    if (preferredProvider === 'central' && centralServerProvider.isAvailable) {
+      try {
+        await centralServerProvider.initialize();
+        this.provider = centralServerProvider;
+        this.providerName = 'central';
+        logger.info('Payment provider: Central server');
+        return;
+      } catch (error) {
+        logger.error('Failed to initialize central payment provider, falling back to mock', { error });
+      }
+    }
+
     // Try preferred provider first
     if (preferredProvider === 'midtrans' && midtransProvider.isAvailable) {
       try {

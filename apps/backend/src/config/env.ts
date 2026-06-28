@@ -20,7 +20,7 @@ export const env: {
   liveViewFps: number;
   liveViewTransport: "ipc" | "http";
   payment: {
-    provider: "mock" | "midtrans" | "xendit" | "stripe";
+    provider: "mock" | "midtrans" | "xendit" | "stripe" | "central";
     midtrans?: {
       serverKey: string;
       clientKey: string;
@@ -84,7 +84,8 @@ export const env: {
       | "mock"
       | "midtrans"
       | "xendit"
-      | "stripe",
+      | "stripe"
+      | "central",
 
     midtrans: process.env[ENV_KEYS.MIDTRANS_SERVER_KEY]
       ? {
