@@ -262,49 +262,6 @@ export class LiveViewError extends CameraError {
 }
 
 // ============================================================================
-// EDSDK FFI Errors
-// ============================================================================
-
-export class EdsSdkNullError extends CameraError {
-  public readonly edsContext: string;
-
-  constructor(
-    contextStr: string,
-    sdkContext?: Partial<Omit<CameraErrorContext, "timestamp">>,
-  ) {
-    super(`Null return from EDSDK: ${contextStr}`, {
-      operation: sdkContext?.operation || "edsdk_call",
-      ...sdkContext,
-      timestamp: new Date().toISOString(),
-    });
-    this.name = "EdsSdkNullError";
-    this.edsContext = contextStr;
-    Object.setPrototypeOf(this, EdsSdkNullError.prototype);
-  }
-}
-
-export class EdsSdkError extends CameraError {
-  public readonly edsSdkCode: number;
-  public readonly edsSdkMessage: string;
-
-  constructor(
-    code: number,
-    message: string,
-    context?: Partial<Omit<CameraErrorContext, "timestamp">>,
-  ) {
-    super(`EDSDK Error: ${message} (0x${code.toString(16).padStart(8, "0")})`, {
-      operation: context?.operation || "edsdk_call",
-      ...context,
-      timestamp: new Date().toISOString(),
-    });
-    this.name = "EdsSdkError";
-    this.edsSdkCode = code;
-    this.edsSdkMessage = message;
-    Object.setPrototypeOf(this, EdsSdkError.prototype);
-  }
-}
-
-// ============================================================================
 // Error Code Mapping
 // ============================================================================
 

@@ -82,3 +82,5 @@ edsdk-deploy.zip
 
 # Photos (user data)
 photos/
+# Canon EDSDK distribution dump (vendored bits live in services/camera-win/)
+EDSDK132010CDwithRAW*/

@@ -124,7 +124,10 @@ export class PythonGPhoto2Provider
       });
 
       return {
-        imagePath: path.join(PYTHON_SERVICE_BASE_DIR, result.image_path),
+        // camera-win returns an absolute path; older relative paths fall back to base dir.
+        imagePath: path.isAbsolute(result.image_path)
+          ? result.image_path
+          : path.join(PYTHON_SERVICE_BASE_DIR, result.image_path),
         metadata: result.metadata,
       };
     } catch (error) {
